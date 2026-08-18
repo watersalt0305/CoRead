@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "toolpkg_id": "coread2",
+  "version": "2.1.0",
+  "author": "CoRead",
+  "main": "dist/main.js",
+  "display_name": {
+    "zh": "CoRead",
+    "en": "CoRead"
+  },
+  "description": {
+    "zh": "EPUB 阅读器 + AI 共读",
+    "en": "EPUB Reader + AI Co-Read"
+  },
+  "subpackages": [
+    {
+      "id": "coread_config",
+      "entry": "dist/subpkg/coread_config.js",
+      "display_name": { "zh": "CoRead 配置", "en": "CoRead Config" },
+      "description": { "zh": "查看/修改 CoRead AI 共读配置", "en": "View/edit CoRead AI config" },
+      "enabled_by_default": true
+    }
+  ]
+}

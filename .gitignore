@@ -1,0 +1,44 @@
+# 编译/打包产物
+*.toolpkg
+*.zip
+build/
+out/
+release/
+
+# Operit 工作区备份（聊天记录等，绝不公开）
+.backup/
+
+# 第三方库（请自行下载，见 README）
+dist/ui/reader/jszip.min.js
+
+# 原型/临时文件
+reader_v2.html
+*.bak
+*.tmp
+*.orig
+*~
+
+# 运行时数据（用户书库、进度、配置，不应入库）
+_coread_config.json
+_coread_history.json
+*.epub
+*.mobi
+*.azw3
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 依赖
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# 日志
+*.log
+npm-debug.log*
