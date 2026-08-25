@@ -7,7 +7,7 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover,interactive-widget=resizes-content">
 <meta name="theme-color" content="#F4F1EA">
 <style>
   /* 覆盖 Android WebView 文字选中高亮色 */
@@ -151,6 +151,7 @@
   <div class="reader-topbar" id="readerTopbar">
     <button class="icon-btn" onclick="closeReader()"><span class="mi">arrow_back</span></button>
     <span class="title" id="readerTitle">---</span>
+    <button class="icon-btn" id="btnSearch" onclick="toggleSearch()"><span class="mi">search</span></button>
     <button class="icon-btn" id="btnToc" onclick="toggleToc()"><span class="mi">format_list_bulleted</span></button>
   </div>
   <div class="reader-content" id="readerContent">
@@ -167,6 +168,21 @@
         <span class="toc-close" onclick="closeToc()">关闭</span>
       </div>
       <div class="toc-list" id="tocList"></div>
+    </div>
+  </div>
+  <!-- 全文搜索面板 -->
+  <div class="toc-panel" id="searchPanel">
+    <div class="toc-backdrop" onclick="closeSearch()"></div>
+    <div class="toc-sheet">
+      <div class="toc-header">
+        <span class="toc-title">全文搜索</span>
+        <span class="toc-close" onclick="closeSearch()">关闭</span>
+      </div>
+      <div style="padding:10px 14px;border-bottom:1px solid var(--rule,rgba(0,0,0,0.08));display:flex;gap:8px;">
+        <input id="searchInput" type="text" placeholder="搜索关键词..." style="flex:1;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:14px;font-family:var(--reader-font, var(--font-read));background:var(--bg-0);color:var(--ink);outline:none;" />
+<button id="searchGoBtn" onclick="doSearch()" style="padding:0 16px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-size:13px;font-weight:600;">搜索</button>
+      </div>
+      <div class="toc-list" id="searchResults"><div style="text-align:center;color:var(--ink-3);font-size:12px;padding:30px 20px;">输入关键词搜索全书内容</div></div>
     </div>
   </div>
   <!-- 阅读设置面板 -->
@@ -230,6 +246,17 @@
       </div>
     </div>
   </div>
+  <!-- 划线书签面板 -->
+  <div class="toc-panel" id="bookmarkPanel">
+    <div class="toc-backdrop" onclick="closeBookmarks()"></div>
+    <div class="toc-sheet">
+      <div class="toc-header">
+        <span class="toc-title">划线摘录</span>
+        <span class="toc-close" onclick="closeBookmarks()">关闭</span>
+      </div>
+      <div class="toc-list" id="bookmarkList" style="padding:8px 12px"></div>
+    </div>
+  </div>
   <div class="reader-bottombar" id="readerBottombar">
     <div class="reader-progress">
       <div class="bar"><div class="bar-fill" id="progressFill"></div></div>
@@ -238,7 +265,8 @@
     <div class="reader-tools">
       <button class="icon-btn" onclick="toggleToc()"><span class="mi">menu_book</span></button>
       <button class="icon-btn" onclick="toggleSettings()"><span class="mi">text_format</span></button>
-      <button class="icon-btn" id="btnBookmark"><span class="mi">bookmark_border</span></button>
+      <button class="icon-btn" id="btnBookmark" onclick="toggleBookmarks()"><span class="mi">bookmark_border</span></button>
+      <button class="icon-btn" id="btnPageToggle" onclick="togglePageMode()"><span class="mi">auto_stories</span></button>
       <button class="icon-btn btn-ai" id="btnAI"><span class="mi">chat</span></button>
     </div>
   </div>

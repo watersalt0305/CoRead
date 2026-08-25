@@ -2,22 +2,30 @@
 
 ## 项目概况
 CoRead v2 是 Operit 平台上的 EPUB/TXT/MD 阅读器插件，ToolPkg 格式，侧边栏入口。
+**GitHub**: https://github.com/watersalt0305/CoRead (AGPLv3)
+**作者**: Mishio / 三岛尾 (watersalt0305) & Claude
 
 ## 工作区路径
 `/data/user/0/com.ai.assistance.operit/files/workspace/ecf37c48-b3bd-40c7-8139-478135fec74d/`
 
 ## 文件结构
 ```
-├── manifest.json          (ToolPkg manifest, toolpkg_id=coread2)
+├── manifest.json          (ToolPkg manifest, toolpkg_id=coread2, v2.1.1)
 ├── dist/
 │   ├── main.js            (registerToolPkg, 注册 UiRoute + NavigationEntry)
+│   ├── subpkg/
+│   │   ├── coread_config.js   (AI 共读配置读写子包)
+│   │   └── coread_tools.js    (AI 划线批注工具子包 — get_highlights/add_annotation/remove_annotation)
 │   └── ui/reader/
-│       ├── index.ui.js    (WebView screen 函数，URL指向工作区 reader.html)
-│       ├── reader.html    (主 HTML，带防缓存时间戳加载)
-│       ├── reader.css     (全部样式：UI框架+阅读器+设置面板+目录+批注)
-│       ├── reader.js      (全部逻辑：~1300行)
+│       ├── index.ui.js    (WebView screen + JS 桥 + 资源释放 + 划线导出)
+│       ├── reader.html    (主 HTML)
+│       ├── reader.css     (全部样式)
+│       ├── reader.js      (全部逻辑 ~2100行)
 │       └── jszip.min.js   (ZIP解析库)
-└── reader_v2.html         (v11原型参考，可删)
+├── .gitignore
+├── LICENSE                (AGPLv3)
+├── README.md
+└── HANDOFF.md             (本文件)
 ```
 
 ## 安装方式
@@ -26,11 +34,17 @@ operit_editor:debug_install_toolpkg
 source_path: /data/user/0/com.ai.assistance.operit/files/workspace/ecf37c48-b3bd-40c7-8139-478135fec74d
 ```
 
+## 资源加载机制（重要）
+- manifest.json 的 `resources` 字段注册了 reader.html/css/js/jszip 四个文件
+- `index.ui.js` 的 `boot()` 通过 `ToolPkg.readResource(key)` 获取资源路径，用 `cp` 释放到 `/sdcard/Download/Operit/CoRead2/reader/`
+- WebView 初始 URL 为 `about:blank`，资源释放完成后才调用 `controller.loadUrl()` 加载 reader.html
+- **注意**：ToolPkg 运行时是 QuickJS，没有 `__dirname`；也没有 `setEvaluateJavascriptResultHandler`
+
 ## 当前已完成功能
 - [x] 书架（导入/删除/封面提取/网格⇄列表切换）
 - [x] EPUB 解析 + 阅读（JSZip + OPF spine）
 - [x] TXT/MD 导入 + 阅读（按标题模式分章）
-- [x] 滚动阅读 + 点击左右区域翻页
+- [x] 滚动阅读 + 点击翻页（左右区域）
 - [x] 章节目录面板（底部弹出，动画）
 - [x] 阅读设置面板（字号/行距/段间距/页边距滑杆 + 字体 + 主题 + 划线样式）
 - [x] 进度记忆（bookId做key，多书独立，visibilitychange兜底）
@@ -42,69 +56,70 @@ source_path: /data/user/0/com.ai.assistance.operit/files/workspace/ecf37c48-b3bd
 - [x] 防缓存机制（CSS/JS 动态时间戳）
 - [x] 系统返回键退出阅读器（history.pushState + popstate）
 - [x] 工具栏左右滑唤醒（document capture touchend）
-- [x] 主题配色优化（2026-08-08）：
-  - 深色主题划线背景色移除（改用下划线样式）
-  - 浅色主题底色统一提亮至 92%+ 明度
-  - Banner/顶栏背景调浅，与底色过渡更柔和
-  - 框线颜色改用文字色（`--border` 改为 `--ink`）
-  - 划线文字颜色强制继承父元素（`color: inherit !important`）
-  - 新增墨水屏特典主题（纯黑白极简）
+- [x] 底栏划线摘录面板（bookmarkPanel，显示当前书所有划线+批注）
+- [x] 划线卡片点击跳转（loadChapterAuto + scrollIntoView + 闪烁高亮）
+- [x] 划线快捷删除（从面板直接删除，同时清理 localStorage 数据）
+- [x] AI 工具子包 coread_tools（get_highlights / add_annotation / remove_annotation）
+- [x] 划线数据导出到文件（Bridge __saveExport 方式，每10秒导出一次）
+- [x] GitHub 开源 + AGPLv3 + README
 
-## 主题配色方案（9个）
-| 主题名 | 类型 | 背景 | 强调色 | 墨色 | 特点 |
-|--------|------|------|--------|------|------|
-| 纸墨 | 浅色 | `#F4F1EA` | `#C25946` | `#2C2A28` | 经典米白（默认） |
-| 秋日 | 浅色 | `#F7F3ED` | `#BF6430` | `#2F403E` | 暖米+橙棕 |
-| 蜜桃 | 浅色 | `#FFF5F1` | `#447F8F` | `#59221D` | 粉底+蓝绿 |
-| 杏林 | 浅色 | `#FAF6EE` | `#315955` | `#012626` | 杏黄+深绿 |
-| 雾蓝 | 浅色 | `#E9EBEB` | `#5B84AE` | `#141A2B` | 灰白+蓝调 |
-| 暖夜 | 深色 | `#1C1C1E` | `#F09B6E` | `#F2D9A4` | 暖橙+米黄墨 |
-| 森野 | 浅色 | `#F4F4F0` | `#8CC152` | `#0E2E1B` | 灰白+草绿 |
-| 夜潭 | 深色 | `#0F2C30` | `#D98566` | `#E5C3B2` | 墨绿黑+暖橙 |
-| 墨水屏 | 特典 | `#FFFFFF` | `#000000` | `#000000` | 纯黑白极简（E-ink优化） |
+## 待修复 Bug / 待完善
 
-**配色设计原则**：
-- 浅色主题底色（`--bg-0`）全部 92%+ 明度，和纸墨米白站同一档
-- Banner/选中 Tab 背景（`--bg-1`）仅比底色深一档，过渡平滑
-- 框线（`--border`）使用文字色（`--ink`），不使用强调色
-- 深色主题去荧光，避免高饱和度色彩铺满
-
-## 已修复 Bug
-### ✅ Bug 1：深色主题划线背景色突兀
-**修复内容**：删除深色主题 `<mark>` 的背景高亮覆盖，统一使用下划线样式
-**修复时间**：2026-08-08
-
-### ✅ Bug 2：划线后文字变黑
-**根因**：`<mark>` 标签浏览器默认 `color: black`
-**修复内容**：为 `.cr-highlight` 添加 `color: inherit !important`，强制继承父元素文字色
-**修复时间**：2026-08-08
-
-## 待修复 Bug（下次优先）
 ### Bug 1：restoreHighlights 破坏 HTML 结构
 **现象**：恢复高亮时，`<mark class="cr-highlight hl-wave">` 标签直接显示为源码文字
-**根因**：`restoreHighlights()` 用正则 `html.replace(re, '<mark>$1</mark>')` 替换 innerHTML，当划线文本跨多个 HTML 标签时，正则会把 `<mark>` 插到已有标签的属性里，破坏 DOM
-**建议修复方向**：
-- 方案A：改用 TreeWalker 遍历文本节点，只在纯文本节点内做高亮标记
-- 方案B：参考旧版 CoRead 的 Range 序列化方案（serializeRange/deserializeRange），用 DOM path + offset 精确定位
-- 方案C：简单 fallback——如果正则替换后产生了裸 `<mark` 文字，就跳过该条恢复
+**根因**：`restoreHighlights()` 用正则替换 innerHTML，跨标签时破坏 DOM
+**建议**：改用 TreeWalker 遍历文本节点或 Range 序列化方案
 
 ### Bug 2：批注弹窗按钮可能被遮挡
 **现象**：用户看不到保存/取消按钮
-**可能原因**：弹窗 CSS 的 z-index(9500) 可能被其他面板盖住，或者按钮文字在深色主题下不可见
-**建议**：检查各主题下 `.hl-btn` 在 `.note-popup` 内的颜色，确保按钮可见
+**建议**：检查各主题下 `.hl-btn` 在 `.note-popup` 内的颜色
+
+### Bug 3：划线数据导出待验证
+**现象**：coread_tools 子包的 get_highlights 能否正常读到数据
+**根因**：导出机制刚从 setEvaluateJavascriptResultHandler（不存在的API）改为 Bridge 回调方式
+**建议**：打开 CoRead 划几条线，等 10 秒，检查 `/sdcard/Download/Operit/CoRead2/_coread_highlights_export.json` 是否生成
+
+### 待做：左右翻页模式
+**需求**：除了当前的滚动阅读，还要支持左右翻页（分页模式）
+**建议**：用 CSS columns 或 JS 计算分页，底栏加模式切换按钮
+
+## 子包架构
+
+### coread_config（已有）
+- `get_coread_config` / `set_coread_config`
+- 读写 `/sdcard/Download/Operit/CoRead2/_coread_config.json`
+
+### coread_tools（新增）
+- `get_highlights` — 读 `_coread_highlights_export.json` 获取划线+批注
+- `add_annotation` — 写批注到 `_coread_notes_{bookId}.json`
+- `remove_annotation` — 删除批注
+- 数据流：WebView localStorage → Bridge.__saveExport → 导出文件 → 子包读取
+
+## 数据存储一览
+
+| 位置 | Key/文件 | 内容 |
+|------|----------|------|
+| IndexedDB `CoRead_V2` | store `books` | fileData(base64)/title/author/coverData/__txtChapters |
+| localStorage | `cr_progress_{bookId}` | 阅读进度 |
+| localStorage | `cr_hl_{bookId}_{chapterIdx}` | 当前章划线（用于恢复渲染） |
+| localStorage | `cr_hl_all_{bookId}` | 全书划线汇总 |
+| localStorage | `cr_notes_{bookId}` | 用户批注 |
+| localStorage | `cr_last_book` | 当前书 ID |
+| localStorage | `cr-theme`, `cr-reader-fs/lh/pspace/mx/font`, `cr-hl-style`, `cr-skin`, `cr-accent`, `cr-radius` | 阅读偏好 |
+| 文件 | `_coread_config.json` | AI 共读配置 |
+| 文件 | `_coread_highlights_export.json` | 导出的划线数据（供 AI 子包读） |
+| 文件 | `_coread_notes_{bookId}.json` | AI 写入的批注 |
 
 ## 技术要点备忘
-- **WebView 缓存**：CSS/JS 通过 `?v=Date.now()` 绕过。HTML 本身不缓存（插件每次打开重读）。如遇改了不生效，重启 Operit。
-- **ToolPkg screen 注册**：必须从独立 .ui.js 文件 require 进来，不能在 main.js 内联定义
+- **ToolPkg 运行时是 QuickJS**：没有 `__dirname`、没有 `setEvaluateJavascriptResultHandler`、没有 Node.js API
+- **WebView 缓存**：CSS/JS 通过 `?v=Date.now()` 绕过。HTML 不缓存。
+- **ToolPkg screen 注册**：必须从独立 .ui.js 文件 require 进来
 - **JS `</` 陷阱**：如果 JS 回到内联 `<script>` 方式，所有 `</` 必须用 `\x3C/` 替代
-- **进度保存顺序**：`closeReader()` 里必须先 `saveProgress()` 再 `classList.remove('active')`，否则 scrollTop 会被 display:none 重置为 0
-- **EPUB CSS 泄漏**：`sanitizeEpubCss()` 把所有选择器加 `.page-text` 前缀，防止 EPUB 样式影响主 UI
-- **IndexedDB**：库名 `CoRead_V2`，store `books`，存 fileData(base64)/title/author/coverData/__txtChapters
-- **localStorage keys**：`cr_progress_{bookId}`, `cr_hl_{bookId}_{chapterIdx}`, `cr_hl_all_{bookId}`, `cr_notes_{bookId}`, `cr-theme`, `cr-reader-fs/lh/pspace/mx/font`, `cr-hl-style`, `cr-skin`, `cr-accent`, `cr-radius`, `cr-view-bookGrid/noteWrap`, `cr_last_book`
+- **进度保存顺序**：`closeReader()` 先 `saveProgress()` 再 `classList.remove('active')`
+- **EPUB CSS 泄漏**：`sanitizeEpubCss()` 加 `.page-text` 前缀
+- **资源释放靠 cp**：`ToolPkg.readResource(key)` 返回临时路径，需 cp 到固定目录
 
-## 未来方向
-- AI 讨论（JS桥接 registerMessageProcessingPlugin）
-- 批注 Tab 页渲染（数据已存好）
-- 漫画/CBZ 支持（JSZip已有，按图片顺序展示）
-- 划线删除确认交互优化
-- 批注 Tab 显示所有划线+笔记汇总
+## GitHub 仓库状态
+- 初始提交已推送，但本轮大量改动（资源机制、书签面板、AI工具子包等）尚未 push
+- `.gitignore` 已排除 `.backup/`、`jszip.min.js`、`reader_v2.html`
+- 需要 push 的改动：manifest.json、index.ui.js、reader.html、reader.js、coread_tools.js、HANDOFF.md、README.md

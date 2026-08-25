@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "toolpkg_id": "coread2",
-  "version": "2.1.0",
-  "author": "CoRead",
+  "version": "2.4.0",
+  "author": "Mishio & Claude",
   "main": "dist/main.js",
   "display_name": {
     "zh": "CoRead",
@@ -12,12 +12,41 @@
     "zh": "EPUB 阅读器 + AI 共读",
     "en": "EPUB Reader + AI Co-Read"
   },
+  "resources": [
+    {
+      "key": "reader_html",
+      "path": "dist/ui/reader/reader.html",
+      "mime": "text/html"
+    },
+    {
+      "key": "reader_css",
+      "path": "dist/ui/reader/reader.css",
+      "mime": "text/css"
+    },
+    {
+      "key": "reader_js",
+      "path": "dist/ui/reader/reader.js",
+      "mime": "application/javascript"
+    },
+    {
+      "key": "jszip_js",
+      "path": "dist/ui/reader/jszip.min.js",
+      "mime": "application/javascript"
+    }
+  ],
   "subpackages": [
     {
-      "id": "coread_config",
-      "entry": "dist/subpkg/coread_config.js",
+      "id": "coread2_config",
+      "entry": "dist/subpkg/coread2_config.js",
       "display_name": { "zh": "CoRead 配置", "en": "CoRead Config" },
       "description": { "zh": "查看/修改 CoRead AI 共读配置", "en": "View/edit CoRead AI config" },
+      "enabled_by_default": true
+    },
+    {
+      "id": "coread2_tools",
+      "entry": "dist/subpkg/coread2_tools.js",
+      "display_name": { "zh": "CoRead AI 工具", "en": "CoRead AI Tools" },
+      "description": { "zh": "查看划线批注、添加 AI 批注", "en": "View highlights, add AI annotations" },
       "enabled_by_default": true
     }
   ]
