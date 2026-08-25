@@ -846,18 +846,26 @@ function loadChapter(idx, restoreScroll) {
   }
 
   return chFile.async('text').then(function(raw) {
-    var d = document.createElement('div');
-    d.innerHTML = raw;
-    // 安全整改：清除 EPUB 内容中的脚本标签，防止 XSS
-    var dangerous = d.querySelectorAll('script, iframe, object, embed, form, meta[http-equiv]');
+    // 安全整改：使用 DOMParser 解析 EPUB HTML，避免直接 innerHTML 触发资源预加载
+    var parser = new DOMParser();
+    var doc = parser.parseFromString(raw, 'text/html');
+    var d = doc.body || doc.documentElement;
+    // 清除危险标签
+    var dangerous = d.querySelectorAll('script, iframe, object, embed, form, meta[http-equiv], link[rel="import"], base, applet');
     for (var di = 0; di < dangerous.length; di++) dangerous[di].remove();
-    // 清除事件处理属性
+    // 清除事件处理属性和危险 URL
     var allEls = d.querySelectorAll('*');
     for (var ai = 0; ai < allEls.length; ai++) {
       var attrs = allEls[ai].attributes;
       for (var ati = attrs.length - 1; ati >= 0; ati--) {
         var aname = attrs[ati].name.toLowerCase();
-        if (aname.indexOf('on') === 0 || (aname === 'href' && String(attrs[ati].value).trim().toLowerCase().indexOf('javascript:') === 0)) {
+        var aval = (attrs[ati].value || '').trim().toLowerCase();
+        if (aname.indexOf('on') === 0 ||
+            (aname === 'href' && aval.indexOf('javascript:') === 0) ||
+            (aname === 'src' && aval.indexOf('javascript:') === 0) ||
+            (aname === 'xlink:href' && aval.indexOf('javascript:') === 0) ||
+            (aname === 'action' && aval.indexOf('javascript:') === 0) ||
+            (aname === 'formaction')) {
           allEls[ai].removeAttribute(attrs[ati].name);
         }
       }
