@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "toolpkg_id": "coread2",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "author": "Mishio & Claude",
   "main": "dist/main.js",
   "display_name": {

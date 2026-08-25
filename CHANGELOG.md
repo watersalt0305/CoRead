@@ -1,5 +1,15 @@
 # CoRead v2 更新日志
 
+## v2.4.1 (2026-08-25)
+
+### 🔒 安全加固（审核修复）
+
+- **EPUB HTML 解析改用 DOMParser**：不再通过 `innerHTML` 解析原始 EPUB HTML，杜绝解析阶段资源预加载风险
+- **危险属性黑名单扩展**：新增 `src="javascript:"`、`xlink:href="javascript:"`、`action`、`formaction` 属性剥除；标签黑名单增加 `link[rel=import]`、`base`、`applet`
+- **发行包结构修正**：确保 `.toolpkg` 归档根目录直接包含 `manifest.json` 和 `dist/`，不再嵌套子目录
+
+---
+
 ## v2.4.0 (2026-08-25)
 
 ### ✨ 新功能
