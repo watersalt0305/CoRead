@@ -79,7 +79,7 @@ function sanitizeEpubCss(css) {
 
 // 安全整改：HTML 转义工具函数，防止用户/EPUB 元数据注入 DOM
 function escHtml(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'"').replace(/'/g,'&#39;');
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 function waitImages(container) {
@@ -558,11 +558,22 @@ function loadChapterAuto(idx, scroll) {
     loadChapter(idx, scroll);
   }
 }
+// 安全整改：URL 协议白名单（输入已做 HTML 实体转义）
+function safeUrl(u, allowDataImage) {
+  var raw = String(u || '').replace(/&amp;/g, '&').replace(/[\u0000-\u0020\u007f-\u009f]+/g, '');
+  var lower = raw.toLowerCase();
+  var m = lower.match(/^([a-z][a-z0-9+.-]*):/);
+  if (!m) return String(u || '').trim();          // 相对路径 / 锚点
+  var scheme = m[1];
+  if (scheme === 'http' || scheme === 'https' || scheme === 'mailto') return String(u || '').trim();
+  if (allowDataImage && /^data:image\/(png|jpe?g|gif|webp);base64,/.test(lower)) return String(u || '').trim();
+  return '#';
+}
 function simpleMarkdown(text) {
   // Block-level Markdown 渲染器（安全：先整体转义 HTML，再解析语法）
   var escaped = String(text)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '"').replace(/'/g, '&#39;');
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
   var lines = escaped.split('\n');
   var out = [];
@@ -570,8 +581,8 @@ function simpleMarkdown(text) {
 
   function inlineMarkdown(s) {
     return s
-      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">')
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1\x3c/a>')
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(_, alt, src) { return '<img src="' + safeUrl(src, true) + '" alt="' + alt + '">'; })
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(_, txt, href) { return '<a href="' + safeUrl(href, false) + '" rel="noopener noreferrer">' + txt + '\x3c/a>'; })
       .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '<span class="md-wikilink">$2\x3c/span>')
       .replace(/\[\[([^\]]+)\]\]/g, '<span class="md-wikilink">$1\x3c/span>')
       .replace(/`([^`]+)`/g, '<code>$1\x3c/code>')
@@ -609,7 +620,7 @@ function simpleMarkdown(text) {
 
     // 代码块 ```
     if (/^`{3,}/.test(trimmed)) {
-      var lang = trimmed.replace(/^`{3,}\s*/, '');
+      var lang = trimmed.replace(/^`{3,}\s*/, '').replace(/[^\w-]/g, '').slice(0, 32);
       var codeLines = [];
       i++;
       while (i < lines.length && !/^`{3,}\s*$/.test(lines[i].trim())) {
@@ -2950,7 +2961,7 @@ function doRenderNotes(wrap, bookNames) {
 
     // 删除按钮（长按卡片触发确认）
     var delBtnHtml = '<button class="note-card-del" data-notekey="' +
-      item.chIdx + ':' + (item.text || '').substring(0, 50).replace(/"/g, '"') +
+      item.chIdx + ':' + (item.text || '').substring(0, 50).replace(/"/g, '&quot;') +
       '" data-bookid="' + item.bookId + '" title="删除"><span class="mi">delete_outline</span></button>';
 
     // 外层精简：只显示原文引用 + 元信息，不直接展示批注内容
@@ -4514,7 +4525,7 @@ function openBookmarks() {
       '<div class="note-card-quote"' + colorBorder + '>' + item.text.replace(/</g, '&lt;') + '</div>' +
       noteHtml + aiNoteHtml +
       '<div class="note-card-meta"><span>' + item.chapter + '</span><span>' + timeStr + '</span>' +
-      '<span class="note-card-del" style="margin-left:auto;color:var(--accent);cursor:pointer;font-size:12px;opacity:0.6" data-ch-del="' + item.chapterIdx + '" data-text-del="' + item.text.substring(0, 50).replace(/"/g, '"') + '">删除</span></div>';
+      '<span class="note-card-del" style="margin-left:auto;color:var(--accent);cursor:pointer;font-size:12px;opacity:0.6" data-ch-del="' + item.chapterIdx + '" data-text-del="' + item.text.substring(0, 50).replace(/"/g, '&quot;') + '">删除</span></div>';
 
     // 点击跳转到对应章节
     card.setAttribute('data-ch', item.chapterIdx);

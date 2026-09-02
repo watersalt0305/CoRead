@@ -1,5 +1,17 @@
 # CoRead v2 更新日志
 
+## v2.5.2 (2026-09-02)
+
+### 🔒 安全修复（响应市场审核）
+
+- **Markdown 渲染 XSS**：`escHtml()` 与 `simpleMarkdown()` 的双引号转义此前为空操作（`"` → `"`），现正确转义为 `&quot;`，杜绝 `[x](x" onerror="…)` 式属性注入
+- **URL 协议白名单**：新增 `safeUrl()`，`<a href>` 仅放行 `http/https/mailto/相对路径/锚点`，`<img src>` 额外放行 `data:image/(png|jpeg|gif|webp);base64`；`javascript:`、`vbscript:`、`data:text/html`、`data:image/svg+xml` 一律替换为 `#`。协议判定前会剥离控制字符并解码 `&amp;`，防大小写/制表符/实体绕过
+- **链接 rel**：Markdown 链接统一附加 `rel="noopener noreferrer"`
+- **代码块语言名**：`language-xxx` 仅保留 `[\w-]`，最长 32 字符
+- **回归测试**：新增 27 条恶意/合法 Markdown 用例（`tests/xss_regression.js`），覆盖表格、代码块、Callout、行内链接/图片；全部通过
+
+不含功能变更。EPUB 路径的 DOMParser 清洗逻辑未改动。
+
 ## v2.5.1 (2026-09-02)
 
 > **重要说明**：市场上的 v2.4.2 因打包工具链问题，包内实际为 v2.3.1 的代码（详见下方「打包修复」）。v2.4.2 及以下版本用户请更新到本版本以获得 v2.4.x 全部修复与本版新功能。
