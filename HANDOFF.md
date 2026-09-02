@@ -10,17 +10,17 @@ CoRead v2 是 Operit 平台上的 EPUB/TXT/MD 阅读器插件，ToolPkg 格式�
 
 ## 文件结构
 ```
-├── manifest.json          (ToolPkg manifest, toolpkg_id=coread2, v2.1.1)
+│   ├── manifest.json          (ToolPkg manifest, toolpkg_id=coread2, v2.5.1)
 ├── dist/
 │   ├── main.js            (registerToolPkg, 注册 UiRoute + NavigationEntry)
 │   ├── subpkg/
-│   │   ├── coread_config.js   (AI 共读配置读写子包)
-│   │   └── coread_tools.js    (AI 划线批注工具子包 — get_highlights/add_annotation/remove_annotation)
+│   │   ├── coread2_config.js  (AI 共读配置读写子包)
+│   │   └── coread2_tools.js   (AI 划线批注工具子包 — get_highlights/add_annotation/remove_annotation)
 │   └── ui/reader/
 │       ├── index.ui.js    (WebView screen + JS 桥 + 资源释放 + 划线导出)
 │       ├── reader.html    (主 HTML)
 │       ├── reader.css     (全部样式)
-│       ├── reader.js      (全部逻辑 ~2100行)
+│       ├── reader.js      (全部逻辑 ~5000行)
 │       └── jszip.min.js   (ZIP解析库)
 ├── .gitignore
 ├── LICENSE                (AGPLv3)
@@ -65,23 +65,28 @@ source_path: /data/user/0/com.ai.assistance.operit/files/workspace/ecf37c48-b3bd
 
 ## 待修复 Bug / 待完善
 
-### Bug 1：restoreHighlights 破坏 HTML 结构
-**现象**：恢复高亮时，`<mark class="cr-highlight hl-wave">` 标签直接显示为源码文字
-**根因**：`restoreHighlights()` 用正则替换 innerHTML，跨标签时破坏 DOM
-**建议**：改用 TreeWalker 遍历文本节点或 Range 序列化方案
+### 已完成（v2.5.0/v2.5.1，2026-09-02）——Markdown 渲染器重写
 
-### Bug 2：批注弹窗按钮可能被遮挡
-**现象**：用户看不到保存/取消按钮
-**建议**：检查各主题下 `.hl-btn` 在 `.note-popup` 内的颜色
+- 块级 Markdown 解析器（表格/围栏代码块/Obsidian callout/wikilink/嵌入/任务列表/==高亮==/删除线/脚注），入口 `renderMarkdown()` → `inlineMarkdown()`，安全策略不变：先整体转义再解析
+- `lastUsedChatId` 持久化补完：`loadConfig()` 恢复，`boot()` 不再无条件覆盖
 
-### Bug 3：划线数据导出待验证
-**现象**：coread_tools 子包的 get_highlights 能否正常读到数据
-**根因**：导出机制刚从 setEvaluateJavascriptResultHandler（不存在的API）改为 Bridge 回调方式
-**建议**：打开 CoRead 划几条线，等 10 秒，检查 `/sdcard/Download/Operit/CoRead2/_coread_highlights_export.json` 是否生成
+
+### 已修复（v2.4.2，2026-08-28）——上下文恢复链路
+
+- ~~restoreHighlights 破坏 HTML~~：已改用 TreeWalker + Range 方案（正则方案早已废弃）
+- **换对话后恢复摘要永远不触发**：标志位在历史加载完成前被消费。修复：只有真正注入才消费标志（`maybeBuildRestorePrefix`）
+- **重开 CoRead 抹平"换过对话"事实**：boot 里无条件同步 `__lastUsedChatId`。修复：`lastUsedChatId` 持久化到 `_coread_config.json`，注入后落盘
+- **恢复摘要回灌新记录**：修复：`__chatSwitchAt` 时间戳截断
+- **历史竞态**：新增 `__historyLoaded` 区分"未加载完"与"加载完但为空"
+- **追问通道不注入恢复**：`sendFollowUp` 已接入统一恢复入口
+- **AI 批注缓存 key 不一致**：`preloadAINotes` 推送改用 sanitize 后的 `safe` 做 key
+- **导出书名为空**：`exportHighlightsToFile` 现从 `window.currentBookTitle` 带出当前书书名
+- 全部实测通过（注入一次 / 不重复 / 重启不复发）
 
 ### 待做：左右翻页模式
 **需求**：除了当前的滚动阅读，还要支持左右翻页（分页模式）
 **建议**：用 CSS columns 或 JS 计算分页，底栏加模式切换按钮
+**注**：翻页模式（__pageMode === 'page' + buildPages）在 reader.js 已有实现并在恢复进度时使用，待确认是否已完整
 
 ## 子包架构
 
@@ -106,7 +111,8 @@ source_path: /data/user/0/com.ai.assistance.operit/files/workspace/ecf37c48-b3bd
 | localStorage | `cr_notes_{bookId}` | 用户批注 |
 | localStorage | `cr_last_book` | 当前书 ID |
 | localStorage | `cr-theme`, `cr-reader-fs/lh/pspace/mx/font`, `cr-hl-style`, `cr-skin`, `cr-accent`, `cr-radius` | 阅读偏好 |
-| 文件 | `_coread_config.json` | AI 共读配置 |
+| 文件 | `_coread_config.json` | AI 共读配置（chatId / cardName / aiDotColor / **lastUsedChatId**——上下文恢复标志的持久化，见 v2.4.2） |
+| 文件 | `_coread_history_{bookId}.json` | 每本书独立的 AI 共读讨论历史（上限 100 条） |
 | 文件 | `_coread_highlights_export.json` | 导出的划线数据（供 AI 子包读） |
 | 文件 | `_coread_notes_{bookId}.json` | AI 写入的批注 |
 
@@ -118,8 +124,24 @@ source_path: /data/user/0/com.ai.assistance.operit/files/workspace/ecf37c48-b3bd
 - **进度保存顺序**：`closeReader()` 先 `saveProgress()` 再 `classList.remove('active')`
 - **EPUB CSS 泄漏**：`sanitizeEpubCss()` 加 `.page-text` 前缀
 - **资源释放靠 cp**：`ToolPkg.readResource(key)` 返回临时路径，需 cp 到固定目录
+- **上下文恢复三件套**（v2.4.2）：`__lastUsedChatId`（持久化在 config）/ `__historyLoaded`（历史竞态）/ `__chatSwitchAt`（cutoff 防回灌）。改动恢复逻辑前先理解这三者的交互，见 `maybeBuildRestorePrefix()`
+- **set_coread_config 是读-改-写**：不要改成整文件覆盖，否则会冲掉 `lastUsedChatId` 导致恢复检测失效
+- **bookId 是 IndexedDB 自增数字**：历史/批注文件名里的 4/10/12 等是书架导入序号，不是章节号
 
-## GitHub 仓库状态
-- 初始提交已推送，但本轮大量改动（资源机制、书签面板、AI工具子包等）尚未 push
-- `.gitignore` 已排除 `.backup/`、`jszip.min.js`、`reader_v2.html`
-- 需要 push 的改动：manifest.json、index.ui.js、reader.html、reader.js、coread_tools.js、HANDOFF.md、README.md
+## GitHub 仓库状态（2026-09-02）
+- main 分支已与 v2.5.1 同步，release 附带 `coread2-v2.5.1.toolpkg` 及 SHA256
+- `.gitignore` 已排除 `.backup/`、`jszip.min.js`、`reader_v2.html`；jszip 需自行下载放到 `dist/ui/reader/`
+
+## ⚠️ 打包注意事项（血泪，必读）
+
+**永远不要直接对工作区目录打包。** 工作区绑定对话后会生成隐藏目录 `.backup/`（含 `chats/` 聊天记录与 `objects/` 快照），前端文件树不显示它，但官方 `debug_toolpkg.py` 与内置打包工具**不排除它、也不读 `.gitignore`**，会把它整个打进 toolpkg。
+
+v2.3.0～v2.4.3 及市场上的 v2.4.2 就是这样翻车的：`.backup/_tmp_pkg_check2/` 里残留了一份旧 manifest，市场提交时的 `ToolPkgArtifactMinifier` 用 `readToolPkgManifestPreview()`（按 zip 顺序取**第一个** manifest，`.backup/` 字典序在前）选中了它，再以它为根做依赖剪枝，把真正的 `manifest.json` 和 `dist/` 全部删掉——产出只剩幽灵目录的空壳。运行时的 `findManifestEntry()` 是根目录优先、找不到才回退嵌套，所以空壳"能用"，实际跑的是 v2.3.1 代码。**不勾混淆也会选错 manifest**（只是不剪枝），唯一可靠的办法是包内只能有一个 manifest。已向 Operit 上游反馈。
+
+**正确流程：**
+1. 在干净目录里只放 `manifest.json` + `dist/` + 文档（README/LICENSE/CHANGELOG/MARKET_INTRO），**不要**放 HANDOFF.md、`.gitignore`、任何 `.` 开头目录
+2. `zip -X -D -r coread2-vX.Y.Z.toolpkg manifest.json dist README.md LICENSE CHANGELOG.md MARKET_INTRO.md`
+3. 提交前**必须** `unzip -l` 检查：第一个条目是 `manifest.json`、`grep -c manifest` 结果为 1、没有任何 `.backup/`
+4. 确认 `dist/main.js` 末尾**没有** `ToolPkg._m([...],90);`——这是市场发布时注入的出身标记，只能由市场盖一次；重打包时若发现已有，必须删掉，否则会盖两层且版本号不一致
+5. 版本号必须递增，市场拒绝重复版本号
+6. 不要在工作区里做临时解包校验（`_tmp_pkg_check*` 之类），要做就在 `/tmp` 下并确保删掉；rewind 会把删过的文件还原回来

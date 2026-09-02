@@ -21,6 +21,8 @@ var __cardName = "";
 var __currentBookId = "";
 var __lastUsedChatId = "";
 var __localHistory = [];
+var __historyLoaded = false;   // 区分"历史尚未异步加载完"与"加载完但为空"
+var __chatSwitchAt = 0;        // 记录 chatId 切换时刻：恢复摘要只包含此前的历史，防止把新对话里刚产生的记录回灌
 var __aiNotesCache = {};  // bookId -> AI批注缓存（异步预加载）
 
 // ============ 工具函数 ============
@@ -62,17 +64,31 @@ function extractReply(result) {
            (r && r.response) || "";
 }
 
-// 生成上下文恢复摘要
-function buildContextSummary(bookTitle) {
-    if (__localHistory.length === 0) return "";
-    var recent = __localHistory.slice(-CONTEXT_RESTORE_COUNT);
-    var lines = recent.map(function(entry, i) {
+// 生成上下文恢复摘要（cutoff：只收录该时间点之前的历史，避免把新对话中产生的记录当旧上下文）
+function buildContextSummary(bookTitle, cutoff) {
+    var pool = __localHistory;
+    if (cutoff) {
+        pool = pool.filter(function(e) { return !e.timestamp || e.timestamp < cutoff; });
+    }
+    if (pool.length === 0) return "";
+    // 追问场景可能拿不到书名，从历史里兜底找一个
+    if (!bookTitle) {
+        for (var j = pool.length - 1; j >= 0; j--) {
+            if (pool[j].bookTitle) { bookTitle = pool[j].bookTitle; break; }
+        }
+        if (!bookTitle) bookTitle = "当前书籍";
+    }
+    var recent = pool.slice(-CONTEXT_RESTORE_COUNT);
+    var lines = [];
+    for (var i = 0; i < recent.length; i++) {
+        var entry = recent[i];
         var summary = "";
-        if (entry.selectedText) summary += "选中: \"" + entry.selectedText.substring(0, 60) + "...\"";
-        if (entry.comment) summary += " 问: " + entry.comment.substring(0, 40);
-        if (entry.aiReply) summary += " AI: " + entry.aiReply.substring(0, 80) + "...";
-        return (i + 1) + ". " + summary;
-    });
+        if (entry.selectedText) summary += "选中: \"" + entry.selectedText.substring(0, 60) + (entry.selectedText.length > 60 ? "...\"" : "\"");
+        if (entry.comment) summary += (summary ? " " : "") + "问: " + entry.comment.substring(0, 40) + (entry.comment.length > 40 ? "..." : "");
+        if (entry.aiReply) summary += (summary ? " " : "") + "AI: " + entry.aiReply.substring(0, 80) + (entry.aiReply.length > 80 ? "..." : "");
+        if (summary) lines.push((i + 1) + ". " + summary);
+    }
+    if (lines.length === 0) return "";
     return "\u3010CoRead \u4E0A\u4E0B\u6587\u6062\u590D\u3011\u4F60\u4E4B\u524D\u548C\u7528\u6237\u8BA8\u8BBA\u8FC7\u300A" + bookTitle + "\u300B\uFF1A\n" + lines.join("\n") + "\n\n\u8BF7\u7EE7\u7EED\u8BA8\u8BBA\uFF1A\n\n";
 }
 
@@ -101,21 +117,25 @@ async function loadConfig() {
             var cfg = JSON.parse(result.content);
             if (cfg.chatId) __chatId = cfg.chatId;
             if (cfg.cardName) __cardName = cfg.cardName;
+            // 恢复上次实际使用的 chatId：与当前配置不同说明用户换过对话，
+            // 该差异必须活过插件重开，否则 boot 里一同步就永远不触发上下文恢复
+            if (cfg.lastUsedChatId) __lastUsedChatId = cfg.lastUsedChatId;
         }
     } catch(e) {}
 }
 
 async function saveConfig() {
     try {
-        var data = JSON.stringify({ chatId: __chatId, cardName: __cardName }, null, 2);
+        var data = JSON.stringify({ chatId: __chatId, cardName: __cardName, lastUsedChatId: __lastUsedChatId || __chatId }, null, 2);
         await Tools.Files.write(CONFIG_FILE, data);
     } catch(e) {}
 }
 
 async function loadHistory(bookId) {
-    if (!bookId) return;
+    if (!bookId) { __historyLoaded = true; return; }
     var safe = sanitizeBookId(bookId);
-    if (!safe) return;
+    if (!safe) { __historyLoaded = true; return; }
+    __historyLoaded = false;
     __localHistory = [];
     var historyFile = DATA_ROOT + "/_coread_history_" + safe + ".json";
     try {
@@ -125,6 +145,24 @@ async function loadHistory(bookId) {
             if (Array.isArray(arr)) __localHistory = arr;
         }
     } catch(e) {}
+    // 读取失败/文件不存在也算"加载完成"——此时历史确实为空，可以放心消费恢复标志
+    __historyLoaded = true;
+}
+
+// 统一的上下文恢复入口：sendToAI 与 sendFollowUp 都走这里
+// 返回需要拼在消息前面的恢复前缀（可能为空串）
+function maybeBuildRestorePrefix(bookTitle) {
+    if (__lastUsedChatId === __chatId) return "";
+    // 首次检测到 chatId 切换：记下时刻，之后新对话里产生的历史不会被当作旧上下文回灌
+    if (!__chatSwitchAt) __chatSwitchAt = Date.now();
+    // 历史尚未异步加载完成：本次不注入也不消费标志，待加载完成后下次发送再触发
+    if (!__historyLoaded) return "";
+    var summary = buildContextSummary(bookTitle, __chatSwitchAt);
+    // 历史已加载完毕即消费标志：摘要为空说明确实没有可恢复的内容，不该让标志一直悬着
+    __lastUsedChatId = __chatId;
+    __chatSwitchAt = 0;
+    saveConfig(); // 持久化 lastUsedChatId，避免重开插件后重复注入
+    return summary;
 }
 
 async function saveHistory() {
@@ -152,7 +190,7 @@ async function preloadAINotes(bookId) {
             try {
                 controller && controller.evaluateJavascript(
                     "window.__coreadAINotesLoaded && window.__coreadAINotesLoaded(" +
-                    JSON.stringify(JSON.stringify(__aiNotesCache[bookId])) + ")"
+                    JSON.stringify(JSON.stringify(__aiNotesCache[safe])) + ")"
                 );
             } catch(e) {}
         }
@@ -189,13 +227,8 @@ function Screen(ctx) {
                     return { ok: false, error: "未配置 chat_id" };
                 }
 
-                // 构造消息
-                var message = "";
-                // 检测 chatId 是否变更，需要注入上下文恢复
-                if ((!__lastUsedChatId || __lastUsedChatId !== __chatId) && __localHistory.length > 0) {
-                    message += buildContextSummary(bookTitle);
-                }
-                __lastUsedChatId = __chatId;
+                // 构造消息（chatId 切换后首条消息注入上下文恢复摘要，逻辑见 maybeBuildRestorePrefix）
+                var message = maybeBuildRestorePrefix(bookTitle);
 
                 message += "\u3010CoRead\u3011\u6B63\u5728\u9605\u8BFB\u300A" + bookTitle + "\u300B";
                 if (chapterTitle) message += " - " + chapterTitle;
@@ -279,6 +312,9 @@ function Screen(ctx) {
                 if (!msg) return { ok: false, error: "空消息" };
                 if (!__chatId) return { ok: false, error: "未配置 chat_id" };
 
+                // 追问同样需要上下文恢复：否则切换 chatId 后先追问，新对话完全不知道在聊什么
+                var outMsg = maybeBuildRestorePrefix("") + msg;
+
                 setTimeout(function() {
                     try {
                         var streamOpts = {
@@ -298,7 +334,7 @@ function Screen(ctx) {
                             }
                         };
 
-                        var p = Tools.Chat.sendMessageStreaming(msg, __chatId, undefined, undefined, streamOpts);
+                        var p = Tools.Chat.sendMessageStreaming(outMsg, __chatId, undefined, undefined, streamOpts);
                         if (p && typeof p.then === "function") {
                             p.then(function(result) {
                                 var finalReply = "";
@@ -456,12 +492,13 @@ function Screen(ctx) {
                 "(function() {" +
                 "  var result = { currentBookId: '', books: {}, notes: {} };" +
                 "  try { result.currentBookId = localStorage.getItem('cr_last_book') || ''; } catch(e) {}" +
+                "  try { result.currentBookTitle = window.currentBookTitle || ''; } catch(e) {}" +
                 "  for (var i = 0; i < localStorage.length; i++) {" +
                 "    var k = localStorage.key(i);" +
                 "    if (k && k.indexOf('cr_hl_all_') === 0) {" +
                 "      var bid = k.replace('cr_hl_all_', '');" +
                 "      try {" +
-                "        result.books[bid] = { highlights: JSON.parse(localStorage.getItem(k) || '{}'), title: '' };" +
+                "        result.books[bid] = { highlights: JSON.parse(localStorage.getItem(k) || '{}'), title: (bid === result.currentBookId ? (window.currentBookTitle || '') : '') };" +
                 "        var notes = localStorage.getItem('cr_notes_' + bid);" +
                 "        if (notes) result.notes[bid] = JSON.parse(notes);" +
                 "      } catch(e) {}" +
@@ -504,6 +541,13 @@ function Screen(ctx) {
         controller.loadUrl(READER_HTML_URL);
 
         await loadConfig();
+        // 注意：这里不再无条件 __lastUsedChatId = __chatId。
+        // lastUsedChatId 已从配置文件恢复（loadConfig）；若配置文件里没有该字段
+        // （老版本配置/首次安装），才视为"上次用的就是当前配置的对话"
+        if (!__lastUsedChatId) {
+            __lastUsedChatId = __chatId;
+            await saveConfig(); // 把初始 lastUsedChatId 写入配置文件持久化
+        }
 
         // 首次安装：如果配置文件为空，自动创建空配置
         if (!__chatId) {

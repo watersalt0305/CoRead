@@ -92,7 +92,7 @@ set_coread_config chat_id="当前对话ID"
 - **数据目录**：所有数据（书籍缓存、配置、讨论历史、批注）均存储于 `/sdcard/Download/Operit/CoRead2/`
 - **批注分享卡导出**：生成的 PNG 图片保存到上述数据目录内（`CoRead_<时间戳>.png`），不写入其他位置
 - **网络访问**：仅通过宿主平台的 AI 对话接口通信，插件本身不发起任何网络请求
-- **文件权限**：仅读写自身数据目录；WebView 关闭跨域文件访问（`allowUniversalAccessFromFileURLs`），仅保留同源本地文件读取（用于加载批注数据）
+- **文件权限**：仅读写自身数据目录；WebView 关闭跨域文件访问（`allowUniversalAccessFromFileURLs=false`），仅保留同源本地文件读取（`allowFileAccessFromFileURLs=true`，用于加载批注数据）
 
 ---
 
