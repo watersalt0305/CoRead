@@ -166,8 +166,8 @@ source_path: /data/user/0/com.ai.assistance.operit/files/workspace/ecf37c48-b3bd
 v2.3.0～v2.4.3 及市场上的 v2.4.2 就是这样翻车的：`.backup/_tmp_pkg_check2/` 里残留了一份旧 manifest，市场提交时的 `ToolPkgArtifactMinifier` 用 `readToolPkgManifestPreview()`（按 zip 顺序取**第一个** manifest，`.backup/` 字典序在前）选中了它，再以它为根做依赖剪枝，把真正的 `manifest.json` 和 `dist/` 全部删掉——产出只剩幽灵目录的空壳。运行时的 `findManifestEntry()` 是根目录优先、找不到才回退嵌套，所以空壳"能用"，实际跑的是 v2.3.1 代码。**不勾混淆也会选错 manifest**（只是不剪枝），唯一可靠的办法是包内只能有一个 manifest。已向 Operit 上游反馈。
 
 **正确流程：**
-1. 在干净目录里只放 `manifest.json` + `dist/` + 文档（README/LICENSE/CHANGELOG/MARKET_INTRO），**不要**放 HANDOFF.md、`.gitignore`、任何 `.` 开头目录
-2. `zip -X -D -r coread2-vX.Y.Z.toolpkg manifest.json dist README.md LICENSE CHANGELOG.md MARKET_INTRO.md`
+1. 在干净目录里只放 `manifest.json` + `dist/` + 文档（README/LICENSE/CHANGELOG），**不要**放 HANDOFF.md、`.gitignore`、任何 `.` 开头目录
+2. `zip -X -D -r coread2-vX.Y.Z.toolpkg manifest.json dist README.md LICENSE CHANGELOG.md`
 3. 提交前**必须** `unzip -l` 检查：第一个条目是 `manifest.json`、`grep -c manifest` 结果为 1、没有任何 `.backup/`
 4. 确认 `dist/main.js` 末尾**没有** `ToolPkg._m([...],90);`——这是市场发布时注入的出身标记，只能由市场盖一次；重打包时若发现已有，必须删掉，否则会盖两层且版本号不一致
 5. 版本号必须递增，市场拒绝重复版本号
