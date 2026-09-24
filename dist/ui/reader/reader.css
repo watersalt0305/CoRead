@@ -560,3 +560,26 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font-ui); backgr
 .ai-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 9550; display: none; }
 .ai-backdrop.active { display: block; }
 
+
+
+/* ===== 书架编辑模式 / 删除书籍 ===== */
+.book-del { display: none; position: absolute; top: -8px; right: -8px; z-index: 3; width: 26px; height: 26px; padding: 0; border-radius: 50%; border: 2px solid var(--bg-0); background: var(--danger); color: #fff; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.25); }
+.book-del .mi { font-size: 15px; font-weight: 700; }
+.book-del:active { transform: scale(0.9); }
+.book-grid.editing .book-del { display: flex; }
+.book-grid.editing .book-card:not(.book-card--add) .book-cover { animation: cr-shelf-wobble 0.32s ease-in-out infinite alternate; }
+.book-grid.editing .book-card:nth-child(2n) .book-cover { animation-delay: -0.16s; }
+.book-grid.editing .book-card--add { opacity: 0.35; pointer-events: none; }
+.book-grid.list.editing .book-card:not(.book-card--add) .book-cover { animation: none; }
+.icon-btn.active { background: var(--accent); color: var(--bg-0); border-color: var(--accent); }
+@keyframes cr-shelf-wobble { from { transform: rotate(-0.8deg); } to { transform: rotate(0.8deg); } }
+@media (prefers-reduced-motion: reduce) { .book-grid.editing .book-cover { animation: none !important; } }
+
+
+/* ===== 共读称呼：外观与 .value 一致，仅以小铅笔提示可编辑 ===== */
+.settings-row .persona-input { width: 8em; min-width: 0; text-align: right; padding: 0; margin: 0; border: none; border-radius: 0; background: transparent; outline: none; -webkit-appearance: none; appearance: none; line-height: inherit; }
+.settings-row .persona-input::placeholder { color: var(--ink-2); opacity: 1; }
+.settings-row .persona-input:focus { color: var(--accent); }
+.settings-row .persona-input:focus::placeholder { color: var(--ink-3); }
+.settings-row .persona-edit { flex: 0 0 auto; font-size: 13px; color: var(--ink-3); align-self: center; margin-left: -2px; transition: color 0.15s; }
+.settings-row:focus-within .persona-edit { color: var(--accent); }

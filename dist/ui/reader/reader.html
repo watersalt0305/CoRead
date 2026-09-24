@@ -13,7 +13,7 @@
   /* 覆盖 Android WebView 文字选中高亮色 */
   * { -webkit-tap-highlight-color: transparent; }
 </style>
-<title>共读 v2</title>
+<title data-i18n="doc.title">共读 v2</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700;900&display=swap">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Space+Mono:wght@400;700&display=swap">
@@ -37,13 +37,14 @@
       <div class="page-header">
         <div class="header-index">01</div>
         <div class="header-seal">共讀</div>
-        <h1>书架<span class="dot"></span></h1>
+        <h1><span data-i18n="tab.shelf">书架</span><span class="dot"></span></h1>
         <span class="header-subtitle">COREAD &middot; LIBRARY</span>
       </div>
       <div class="shelf-actions">
         <label class="icon-btn" for="fileInput" style="cursor:pointer"><span class="mi">add</span></label>
         <button class="icon-btn"><span class="mi">search</span></button>
         <button class="icon-btn" onclick="toggleView('bookGrid','list',this,'view_list','grid_view')"><span class="mi">view_list</span></button>
+        <button class="icon-btn" id="btnShelfEdit" onclick="toggleShelfEdit(this)" data-i18n-title="shelf.edit" title="编辑"><span class="mi">edit</span></button>
       </div>
       <input type="file" id="fileInput" accept="*/*" style="position:absolute;left:-9999px;opacity:0">
       <div class="book-grid" id="bookGrid">
@@ -61,7 +62,7 @@
       <div class="page-header">
         <div class="header-index">02</div>
         <div class="header-seal">摘錄</div>
-        <h1>批注<span class="dot"></span></h1>
+        <h1><span data-i18n="tab.notes">批注</span><span class="dot"></span></h1>
         <span class="header-subtitle">COREAD &middot; ANNOTATIONS</span>
       </div>
       <div class="shelf-actions">
@@ -69,7 +70,7 @@
       </div>
       <div id="noteWrap">
         <!-- 动态批注卡片将由 JS 插入 -->
-        <div style="padding:24px;text-align:center;color:var(--ink-3);font-family:var(--font-mono);font-size:12px;">NO ANNOTATIONS YET</div>
+        <div style="padding:24px;text-align:center;color:var(--ink-3);font-family:var(--font-mono);font-size:12px;" data-i18n="notes.none">NO ANNOTATIONS YET</div>
       </div>
     </div>
 
@@ -78,36 +79,51 @@
       <div class="page-header">
         <div class="header-index">03</div>
         <div class="header-seal">設定</div>
-        <h1>设置<span class="dot"></span></h1>
+        <h1><span data-i18n="tab.prefs">设置</span><span class="dot"></span></h1>
         <span class="header-subtitle">COREAD &middot; PREFERENCES</span>
       </div>
 
       <div class="settings-section">
-        <div class="settings-section-title">Reading</div>
+        <div class="settings-section-title">Language</div>
         <div class="settings-card">
-          <div class="settings-row"><span class="label">排版字号</span><span class="leader"></span><span class="value" id="valFontSize">18 PX</span></div>
-          <div class="settings-row"><span class="label">行距</span><span class="leader"></span><span class="value" id="valLineHeight">2.0</span></div>
-          <div class="settings-row"><span class="label">字体偏好</span><span class="leader"></span><span class="value" id="valFont">SERIF</span></div>
+          <div class="settings-row"><span class="label" data-i18n="set.language">语言</span><span class="leader"></span>
+            <span class="rset-pills" style="display:inline-flex;gap:6px;">
+              <button class="rset-pill" data-lang-pill="zh" onclick="setLang('zh')">中文</button>
+              <button class="rset-pill" data-lang-pill="en" onclick="setLang('en')">EN</button>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section settings-section--ai">
+        <div class="settings-section-title">AI Co-Read</div>
+        <div class="settings-card">
+          <div class="settings-row"><span class="label" data-i18n="set.chatId">关联记录</span><span class="leader"></span><span class="value" id="valChatId">NULL</span></div>
+          <div class="settings-row"><span class="label" data-i18n="set.cardName">共读搭档</span><span class="leader"></span><span class="value" id="valCardName">SYSTEM</span></div>
+          <label class="settings-row" for="personaNameInput" style="cursor:text;"><span class="label" data-i18n="set.persona">共读称呼</span><span class="leader"></span>
+            <input id="personaNameInput" class="value persona-input" type="text" maxlength="24" placeholder="用户" data-i18n-ph="persona.defUser" oninput="setPersonaName(this.value)" onkeydown="if(event.key==='Enter')this.blur()"><span class="mi persona-edit">edit</span>
+          </label>
+          <div id="personaPreview" style="padding:4px 16px 14px;font-size:12px;line-height:1.6;color:var(--ink-3);font-family:var(--font-read);"></div>
         </div>
       </div>
 
       <div class="settings-section">
         <div class="settings-section-title">Theme</div>
         <details class="settings-fold" open>
-          <summary>预设配色 &middot; Palette</summary>
+          <summary data-i18n="set.palette">预设配色 &middot; Palette</summary>
           <div class="fold-body">
             <div id="paletteList">
-              <div class="palette-row active" onclick="setTheme(this,'')"><span class="label">纸墨</span><span class="sws"><span class="sw" style="background:#F4F1EA"></span><span class="sw" style="background:#C25946"></span><span class="sw" style="background:#5C6B4F"></span><span class="sw" style="background:#2C2A28"></span></span></div>
-              <div class="palette-row" onclick="setTheme(this,'autumn')"><span class="label">秋日</span><span class="sws"><span class="sw" style="background:#F7F3ED"></span><span class="sw" style="background:#BF6430"></span><span class="sw" style="background:#988E5D"></span><span class="sw" style="background:#2F403E"></span></span></div>
-              <div class="palette-row" onclick="setTheme(this,'peach')"><span class="label">蜜桃</span><span class="sws"><span class="sw" style="background:#FFF5F1"></span><span class="sw" style="background:#447F8F"></span><span class="sw" style="background:#809FA6"></span><span class="sw" style="background:#59221D"></span></span></div>
-              <div class="palette-row" onclick="setTheme(this,'apricot')"><span class="label">杏林</span><span class="sws"><span class="sw" style="background:#FAF6EE"></span><span class="sw" style="background:#315955"></span><span class="sw" style="background:#A6986D"></span><span class="sw" style="background:#012626"></span></span></div>
-              <div class="palette-row" onclick="setTheme(this,'mist-blue')"><span class="label">雾蓝</span><span class="sws"><span class="sw" style="background:#E9EBEB"></span><span class="sw" style="background:#5B84AE"></span><span class="sw" style="background:#2E4A6B"></span><span class="sw" style="background:#141A2B"></span></span></div>
-              <div class="palette-row" onclick="setTheme(this,'warm-night')"><span class="label">暖夜</span><span class="sws"><span class="sw" style="background:#1C1C1E"></span><span class="sw" style="background:#F09B6E"></span><span class="sw" style="background:#A76F63"></span><span class="sw" style="background:#F2D9A4"></span></span></div>
-              <div class="palette-row" onclick="setTheme(this,'forest')"><span class="label">森野</span><span class="sws"><span class="sw" style="background:#F4F4F0"></span><span class="sw" style="background:#8CC152"></span><span class="sw" style="background:#5F6664"></span><span class="sw" style="background:#0E2E1B"></span></span></div>
-              <div class="palette-row" onclick="setTheme(this,'night-pond')"><span class="label">夜潭</span><span class="sws"><span class="sw" style="background:#0F2C30"></span><span class="sw" style="background:#D98566"></span><span class="sw" style="background:#7A938E"></span><span class="sw" style="background:#E5C3B2"></span></span></div>
-              <div class="palette-row" onclick="setTheme(this,'eink')"><span class="label">墨水屏</span><span class="sws"><span class="sw" style="background:#FFFFFF;border:1px solid #DDD"></span><span class="sw" style="background:#000000"></span><span class="sw" style="background:#666666"></span><span class="sw" style="background:#000000"></span></span></div>
+              <div class="palette-row active" onclick="setTheme(this,'')"><span class="label" data-i18n="theme.paper">纸墨</span><span class="sws"><span class="sw" style="background:#F4F1EA"></span><span class="sw" style="background:#C25946"></span><span class="sw" style="background:#5C6B4F"></span><span class="sw" style="background:#2C2A28"></span></span></div>
+              <div class="palette-row" onclick="setTheme(this,'autumn')"><span class="label" data-i18n="theme.autumn">秋日</span><span class="sws"><span class="sw" style="background:#F7F3ED"></span><span class="sw" style="background:#BF6430"></span><span class="sw" style="background:#988E5D"></span><span class="sw" style="background:#2F403E"></span></span></div>
+              <div class="palette-row" onclick="setTheme(this,'peach')"><span class="label" data-i18n="theme.peach">蜜桃</span><span class="sws"><span class="sw" style="background:#FFF5F1"></span><span class="sw" style="background:#447F8F"></span><span class="sw" style="background:#809FA6"></span><span class="sw" style="background:#59221D"></span></span></div>
+              <div class="palette-row" onclick="setTheme(this,'apricot')"><span class="label" data-i18n="theme.apricot">杏林</span><span class="sws"><span class="sw" style="background:#FAF6EE"></span><span class="sw" style="background:#315955"></span><span class="sw" style="background:#A6986D"></span><span class="sw" style="background:#012626"></span></span></div>
+              <div class="palette-row" onclick="setTheme(this,'mist-blue')"><span class="label" data-i18n="theme.mistBlue">雾蓝</span><span class="sws"><span class="sw" style="background:#E9EBEB"></span><span class="sw" style="background:#5B84AE"></span><span class="sw" style="background:#2E4A6B"></span><span class="sw" style="background:#141A2B"></span></span></div>
+              <div class="palette-row" onclick="setTheme(this,'warm-night')"><span class="label" data-i18n="theme.warmNight">暖夜</span><span class="sws"><span class="sw" style="background:#1C1C1E"></span><span class="sw" style="background:#F09B6E"></span><span class="sw" style="background:#A76F63"></span><span class="sw" style="background:#F2D9A4"></span></span></div>
+              <div class="palette-row" onclick="setTheme(this,'forest')"><span class="label" data-i18n="theme.forest">森野</span><span class="sws"><span class="sw" style="background:#F4F4F0"></span><span class="sw" style="background:#8CC152"></span><span class="sw" style="background:#5F6664"></span><span class="sw" style="background:#0E2E1B"></span></span></div>
+              <div class="palette-row" onclick="setTheme(this,'night-pond')"><span class="label" data-i18n="theme.nightPond">夜潭</span><span class="sws"><span class="sw" style="background:#0F2C30"></span><span class="sw" style="background:#D98566"></span><span class="sw" style="background:#7A938E"></span><span class="sw" style="background:#E5C3B2"></span></span></div>
+              <div class="palette-row" onclick="setTheme(this,'eink')"><span class="label" data-i18n="theme.eink">墨水屏</span><span class="sws"><span class="sw" style="background:#FFFFFF;border:1px solid #DDD"></span><span class="sw" style="background:#000000"></span><span class="sw" style="background:#666666"></span><span class="sw" style="background:#000000"></span></span></div>
             </div>
-            <label class="switch-row"><span class="label">自定义强调色</span><span class="leader"></span><input type="color" class="colorpick" value="#C25946" oninput="setAccent(this.value)"></label>
+            <label class="switch-row"><span class="label" data-i18n="set.accent">自定义强调色</span><span class="leader"></span><input type="color" class="colorpick" value="#C25946" oninput="setAccent(this.value)"></label>
           </div>
         </details>
       </div>
@@ -115,24 +131,16 @@
       <div class="settings-section">
         <div class="settings-section-title">Ornaments</div>
         <details class="settings-fold">
-          <summary>装饰元素 &middot; 微调</summary>
+          <summary data-i18n="set.ornaments">装饰元素 &middot; 微调</summary>
           <div class="fold-body">
-            <label class="switch-row"><span class="label">描边 / 色块</span><span class="leader"></span><input type="checkbox" class="switch" id="swFrame" checked onchange="setFrame(this.checked)"></label>
-            <label class="switch-row"><span class="label">竖排朱印</span><span class="leader"></span><input type="checkbox" class="switch" id="swSeal" checked></label>
-            <label class="switch-row"><span class="label">幽灵编号</span><span class="leader"></span><input type="checkbox" class="switch" id="swIndex" checked></label>
-            <label class="switch-row"><span class="label">引号标签</span><span class="leader"></span><input type="checkbox" class="switch" id="swQuote" checked></label>
-            <label class="switch-row"><span class="label">首字下沉</span><span class="leader"></span><input type="checkbox" class="switch" id="swDrop" checked></label>
-            <label class="switch-row"><span class="label">圆角尺度</span><span class="leader"></span><input type="range" class="slider" id="swRadius" min="0" max="20" value="0" oninput="setRadius(this.value)"><span class="num" id="radiusNum">0px</span></label>
+            <label class="switch-row"><span class="label" data-i18n="set.frame">描边 / 色块</span><span class="leader"></span><input type="checkbox" class="switch" id="swFrame" checked onchange="setFrame(this.checked)"></label>
+            <label class="switch-row"><span class="label" data-i18n="set.seal">竖排朱印</span><span class="leader"></span><input type="checkbox" class="switch" id="swSeal" checked></label>
+            <label class="switch-row"><span class="label" data-i18n="set.index">幽灵编号</span><span class="leader"></span><input type="checkbox" class="switch" id="swIndex" checked></label>
+            <label class="switch-row"><span class="label" data-i18n="set.quote">引号标签</span><span class="leader"></span><input type="checkbox" class="switch" id="swQuote" checked></label>
+            <label class="switch-row"><span class="label" data-i18n="set.drop">首字下沉</span><span class="leader"></span><input type="checkbox" class="switch" id="swDrop" checked></label>
+            <label class="switch-row"><span class="label" data-i18n="set.radius">圆角尺度</span><span class="leader"></span><input type="range" class="slider" id="swRadius" min="0" max="20" value="0" oninput="setRadius(this.value)"><span class="num" id="radiusNum">0px</span></label>
           </div>
         </details>
-      </div>
-
-      <div class="settings-section settings-section--ai">
-        <div class="settings-section-title">AI Co-Read</div>
-        <div class="settings-card">
-          <div class="settings-row"><span class="label">关联记录</span><span class="leader"></span><span class="value" id="valChatId">NULL</span></div>
-          <div class="settings-row"><span class="label">共读搭档</span><span class="leader"></span><span class="value" id="valCardName">SYSTEM</span></div>
-        </div>
       </div>
     </div>
 
@@ -164,8 +172,8 @@
     <div class="toc-backdrop" onclick="closeToc()"></div>
     <div class="toc-sheet">
       <div class="toc-header">
-        <span class="toc-title">目录</span>
-        <span class="toc-close" onclick="closeToc()">关闭</span>
+        <span class="toc-title" data-i18n="toc.title">目录</span>
+        <span class="toc-close" onclick="closeToc()" data-i18n="common.close">关闭</span>
       </div>
       <div class="toc-list" id="tocList"></div>
     </div>
@@ -175,14 +183,14 @@
     <div class="toc-backdrop" onclick="closeSearch()"></div>
     <div class="toc-sheet">
       <div class="toc-header">
-        <span class="toc-title">全文搜索</span>
-        <span class="toc-close" onclick="closeSearch()">关闭</span>
+        <span class="toc-title" data-i18n="search.title">全文搜索</span>
+        <span class="toc-close" onclick="closeSearch()" data-i18n="common.close">关闭</span>
       </div>
       <div style="padding:10px 14px;border-bottom:1px solid var(--rule,rgba(0,0,0,0.08));display:flex;gap:8px;">
-        <input id="searchInput" type="text" placeholder="搜索关键词..." style="flex:1;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:14px;font-family:var(--reader-font, var(--font-read));background:var(--bg-0);color:var(--ink);outline:none;" />
-<button id="searchGoBtn" onclick="doSearch()" style="padding:0 16px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-size:13px;font-weight:600;">搜索</button>
+        <input id="searchInput" type="text" placeholder="搜索关键词..." data-i18n-ph="search.ph" style="flex:1;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:14px;font-family:var(--reader-font, var(--font-read));background:var(--bg-0);color:var(--ink);outline:none;" />
+<button id="searchGoBtn" onclick="doSearch()" style="padding:0 16px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-size:13px;font-weight:600;" data-i18n="search.go">搜索</button>
       </div>
-      <div class="toc-list" id="searchResults"><div style="text-align:center;color:var(--ink-3);font-size:12px;padding:30px 20px;">输入关键词搜索全书内容</div></div>
+      <div class="toc-list" id="searchResults"><div style="text-align:center;color:var(--ink-3);font-size:12px;padding:30px 20px;" data-i18n="search.hint">输入关键词搜索全书内容</div></div>
     </div>
   </div>
   <!-- 阅读设置面板 -->
@@ -190,57 +198,57 @@
     <div class="toc-backdrop" onclick="closeSettings()"></div>
     <div class="toc-sheet settings-sheet">
       <div class="toc-header">
-        <span class="toc-title">阅读设置</span>
-        <span class="toc-close" onclick="closeSettings()">关闭</span>
+        <span class="toc-title" data-i18n="rset.title">阅读设置</span>
+        <span class="toc-close" onclick="closeSettings()" data-i18n="common.close">关闭</span>
       </div>
       <div class="rset-body">
         <!-- 字号 -->
         <div class="rset-slider-row">
-          <div class="rset-slider-head"><span class="rset-label">字号</span><span class="rset-num" id="rsetFontSize">18px</span></div>
+          <div class="rset-slider-head"><span class="rset-label" data-i18n="rset.fontSize">字号</span><span class="rset-num" id="rsetFontSize">18px</span></div>
           <input type="range" class="rset-slider" id="sliderFs" min="12" max="32" step="1" value="18" oninput="setFontSize(this.value)">
         </div>
         <!-- 行距 -->
         <div class="rset-slider-row">
-          <div class="rset-slider-head"><span class="rset-label">行距</span><span class="rset-num" id="rsetLineHeight">2.0</span></div>
+          <div class="rset-slider-head"><span class="rset-label" data-i18n="rset.lineHeight">行距</span><span class="rset-num" id="rsetLineHeight">2.0</span></div>
           <input type="range" class="rset-slider" id="sliderLh" min="1.4" max="2.8" step="0.1" value="2.0" oninput="setLineHeight(this.value)">
         </div>
         <!-- 段间距 -->
         <div class="rset-slider-row">
-          <div class="rset-slider-head"><span class="rset-label">段间距</span><span class="rset-num" id="rsetPSpace">1.5em</span></div>
+          <div class="rset-slider-head"><span class="rset-label" data-i18n="rset.pSpace">段间距</span><span class="rset-num" id="rsetPSpace">1.5em</span></div>
           <input type="range" class="rset-slider" id="sliderPSpace" min="0.5" max="3" step="0.1" value="1.5" oninput="setPSpace(this.value)">
         </div>
         <!-- 页边距 -->
         <div class="rset-slider-row">
-          <div class="rset-slider-head"><span class="rset-label">页边距</span><span class="rset-num" id="rsetMargin">24px</span></div>
+          <div class="rset-slider-head"><span class="rset-label" data-i18n="rset.margin">页边距</span><span class="rset-num" id="rsetMargin">24px</span></div>
           <input type="range" class="rset-slider" id="sliderMx" min="8" max="60" step="2" value="24" oninput="setMargin(this.value)">
         </div>
         <!-- 字体 -->
         <div class="rset-row">
-          <span class="rset-label">字体</span>
+          <span class="rset-label" data-i18n="rset.font">字体</span>
           <div class="rset-pills" id="rsetFont">
-            <button class="rset-pill" data-font="serif" onclick="setFont('serif',this)">宋体</button>
-            <button class="rset-pill" data-font="sans" onclick="setFont('sans',this)">黑体</button>
+            <button class="rset-pill" data-font="serif" onclick="setFont('serif',this)" data-i18n="rset.serif">宋体</button>
+            <button class="rset-pill" data-font="sans" onclick="setFont('sans',this)" data-i18n="rset.sans">黑体</button>
           </div>
         </div>
         <!-- 划线样式 -->
         <div class="rset-row">
-          <span class="rset-label">划线</span>
+          <span class="rset-label" data-i18n="rset.hl">划线</span>
           <div class="rset-pills" id="rsetHlStyle">
-            <button class="rset-pill" data-hl="" onclick="setHlStyle('',this)">高亮</button>
-            <button class="rset-pill" data-hl="hl-line" onclick="setHlStyle('hl-line',this)">直线</button>
-            <button class="rset-pill" data-hl="hl-wave" onclick="setHlStyle('hl-wave',this)">波浪</button>
-            <button class="rset-pill" data-hl="hl-dash" onclick="setHlStyle('hl-dash',this)">虚线</button>
+            <button class="rset-pill" data-hl="" onclick="setHlStyle('',this)" data-i18n="rset.hlBg">高亮</button>
+            <button class="rset-pill" data-hl="hl-line" onclick="setHlStyle('hl-line',this)" data-i18n="rset.hlLine">直线</button>
+            <button class="rset-pill" data-hl="hl-wave" onclick="setHlStyle('hl-wave',this)" data-i18n="rset.hlWave">波浪</button>
+            <button class="rset-pill" data-hl="hl-dash" onclick="setHlStyle('hl-dash',this)" data-i18n="rset.hlDash">虚线</button>
           </div>
         </div>
         <!-- 主题配色 -->
         <div class="rset-row rset-row-theme">
-          <span class="rset-label">主题</span>
+          <span class="rset-label" data-i18n="rset.theme">主题</span>
           <div class="rset-themes" id="rsetThemes">
-            <button class="rset-theme" data-theme="" onclick="setReaderTheme('',this)" style="background:#F4F1EA" title="纸墨"></button>
-            <button class="rset-theme" data-theme="mono" onclick="setReaderTheme('mono',this)" style="background:#F1F1EF" title="素灰"></button>
-            <button class="rset-theme" data-theme="celadon" onclick="setReaderTheme('celadon',this)" style="background:#EFF3EE" title="青瓷"></button>
-            <button class="rset-theme" data-theme="indigo" onclick="setReaderTheme('indigo',this)" style="background:#EFF0F4" title="黛蓝"></button>
-            <button class="rset-theme" data-theme="dark" onclick="setReaderTheme('dark',this)" style="background:#1A1917" title="深渊"></button>
+            <button class="rset-theme" data-theme="" onclick="setReaderTheme('',this)" style="background:#F4F1EA" title="纸墨" data-i18n-title="theme.paper"></button>
+            <button class="rset-theme" data-theme="mono" onclick="setReaderTheme('mono',this)" style="background:#F1F1EF" title="素灰" data-i18n-title="theme.mono"></button>
+            <button class="rset-theme" data-theme="celadon" onclick="setReaderTheme('celadon',this)" style="background:#EFF3EE" title="青瓷" data-i18n-title="theme.celadon"></button>
+            <button class="rset-theme" data-theme="indigo" onclick="setReaderTheme('indigo',this)" style="background:#EFF0F4" title="黛蓝" data-i18n-title="theme.indigo"></button>
+            <button class="rset-theme" data-theme="dark" onclick="setReaderTheme('dark',this)" style="background:#1A1917" title="深渊" data-i18n-title="theme.dark"></button>
           </div>
         </div>
       </div>
@@ -251,8 +259,8 @@
     <div class="toc-backdrop" onclick="closeBookmarks()"></div>
     <div class="toc-sheet">
       <div class="toc-header">
-        <span class="toc-title">划线摘录</span>
-        <span class="toc-close" onclick="closeBookmarks()">关闭</span>
+        <span class="toc-title" data-i18n="bm.title">划线摘录</span>
+        <span class="toc-close" onclick="closeBookmarks()" data-i18n="common.close">关闭</span>
       </div>
       <div class="toc-list" id="bookmarkList" style="padding:8px 12px"></div>
     </div>
@@ -276,10 +284,10 @@
 <div class="hl-menu" id="hlMenu">
   <!-- 初始：操作按钮 -->
   <div class="hl-menu-row hl-menu-actions" id="hlActionsRow">
-    <button class="hl-btn" onclick="doCopy()"><span class="mi">content_copy</span>复制</button>
-    <button class="hl-btn" onclick="doHighlight()"><span class="mi">edit</span>划线</button>
-    <button class="hl-btn" onclick="doHighlightAndNote()"><span class="mi">rate_review</span>想法</button>
-    <button class="hl-btn" onclick="askAIAboutSelection()"><span class="mi">smart_toy</span>问AI</button>
+    <button class="hl-btn" onclick="doCopy()"><span class="mi">content_copy</span><span data-i18n="hl.copy">复制</span></button>
+    <button class="hl-btn" onclick="doHighlight()"><span class="mi">edit</span><span data-i18n="hl.highlight">划线</span></button>
+    <button class="hl-btn" onclick="doHighlightAndNote()"><span class="mi">rate_review</span><span data-i18n="hl.note">想法</span></button>
+    <button class="hl-btn" onclick="askAIAboutSelection()"><span class="mi">smart_toy</span><span data-i18n="hl.askAI">问AI</span></button>
   </div>
   <!-- 划线后：样式快选（初始隐藏） -->
   <div class="hl-menu-row hl-menu-styles hidden" id="hlStyleRow">
@@ -298,11 +306,11 @@
 <!-- AI 快捷发送面板（底部弹出，旧版风格） -->
 <div class="ai-quick" id="aiQuick">
   <div class="ai-quick-quote" id="aiQuickQuote"></div>
-  <textarea class="ai-quick-input" id="aiQuickInput" placeholder="添加你的想法或问题（可留空直接发送）…"></textarea>
-  <label class="ai-quick-check"><input type="checkbox" id="aiQuickHighlight" checked><span>同时划线标记</span></label>
+  <textarea class="ai-quick-input" id="aiQuickInput" placeholder="添加你的想法或问题（可留空直接发送）…" data-i18n-ph="aiq.ph"></textarea>
+  <label class="ai-quick-check"><input type="checkbox" id="aiQuickHighlight" checked><span data-i18n="aiq.alsoHl">同时划线标记</span></label>
   <div class="ai-quick-actions">
-    <button class="hl-btn btn-cancel" onclick="closeAIQuick()">取消</button>
-    <button class="hl-btn" onclick="submitAIQuick()"><span class="mi" style="font-size:14px;margin-right:2px;">send</span>发送给AI</button>
+    <button class="hl-btn btn-cancel" onclick="closeAIQuick()" data-i18n="common.cancel">取消</button>
+    <button class="hl-btn" onclick="submitAIQuick()"><span class="mi" style="font-size:14px;margin-right:2px;">send</span><span data-i18n="aiq.send">发送给AI</span></button>
   </div>
 </div>
 
@@ -311,14 +319,14 @@
 <!-- AI 对话面板（右侧抽屉） -->
 <div class="ai-panel" id="aiPanel">
   <div class="ai-panel-header">
-    <span class="ai-panel-title">AI 共读</span>
+    <span class="ai-panel-title" data-i18n="ai.panelTitle">AI 共读</span>
     <button class="icon-btn" onclick="closeAIPanel()"><span class="mi">close</span></button>
   </div>
   <div class="ai-panel-messages" id="aiMessages">
-    <div class="ai-empty">选中文字后点击 AI 按钮开始讨论</div>
+    <div class="ai-empty" data-i18n="ai.empty">选中文字后点击 AI 按钮开始讨论</div>
   </div>
   <div class="ai-panel-input">
-    <textarea class="ai-input" id="aiInput" placeholder="继续追问…" rows="1"></textarea>
+    <textarea class="ai-input" id="aiInput" placeholder="继续追问…" data-i18n-ph="ai.followPh" rows="1"></textarea>
     <button class="ai-send-btn" onclick="sendAIFollowUp()"><span class="mi">send</span></button>
   </div>
 </div>
@@ -326,15 +334,18 @@
 <!-- 批注弹窗（底部浮起） -->
 <div class="note-popup" id="notePopup">
   <div class="note-popup-quote" id="notePopupQuote"></div>
-  <textarea class="note-popup-input" id="notePopupInput" placeholder="写下这一刻的想法…"></textarea>
+  <textarea class="note-popup-input" id="notePopupInput" placeholder="写下这一刻的想法…" data-i18n-ph="note.ph"></textarea>
   <div class="note-popup-actions">
-    <button class="hl-btn" onclick="saveNote()"><span class="mi" style="font-size:14px;margin-right:2px;">send</span>发表</button>
-    <button class="hl-btn btn-cancel" onclick="closeNote()">取消</button>
+    <button class="hl-btn" onclick="saveNote()"><span class="mi" style="font-size:14px;margin-right:2px;">send</span><span data-i18n="note.post">发表</span></button>
+    <button class="hl-btn btn-cancel" onclick="closeNote()" data-i18n="common.cancel">取消</button>
     <button class="hl-btn btn-delete" onclick="deleteHighlightNote()"><span class="mi">delete</span></button>
   </div>
 </div>
 
 <script src="jszip.min.js"></script>
+<script src="i18n.js"></script>
+<script src="i18n_dict.js"></script>
+<script>try { applyI18n(); } catch(e) {}</script>
 <script>
   // 动态加载 reader.js 并附带时间戳，绕过 WebView 缓存
   (function() {

@@ -190,7 +190,7 @@ function refreshLibrary() {
       // 阅读进度
       var progressHtml = '';
       if (isReading) {
-        progressHtml = '<div class="badge-reading">阅读中</div>';
+        progressHtml = '<div class="badge-reading">' + _t('shelf.reading') + '</div>';
       } else {
         try {
           var prog = JSON.parse(localStorage.getItem('cr_progress_' + book.id) || '{}');
@@ -203,11 +203,18 @@ function refreshLibrary() {
 
       card.innerHTML = progressHtml +
         '<div class="book-cover" style="' + coverStyle + '">' + coverInner + '</div>' +
-        '<div class="book-title">' + escHtml(book.title || '未知') + '</div>' +
-        '<div class="book-author">' + escHtml(book.author || '') + '</div>';
+        '<div class="book-title">' + escHtml(book.title || _t('common.unknown')) + '</div>' +
+        '<div class="book-author">' + escHtml(book.author || '') + '</div>' +
+        '<button class="book-del" aria-label="' + _t('common.delete') + '"><span class="mi">close</span></button>';
 
-    // 点击打开
-    card.onclick = function() { openBook(book.id); };
+    var delBtn = card.querySelector('.book-del');
+    delBtn.onclick = function(ev) { ev.stopPropagation(); confirmDelete(book.id, book.title); };
+
+    // 点击打开（编辑模式下点卡片也视为删除）
+    card.onclick = function() {
+      if (grid.classList.contains('editing')) { confirmDelete(book.id, book.title); return; }
+      openBook(book.id);
+    };
     // 长按删除（仅单指触摸时触发，防止多指手势误触）
     var longTimer = null;
     card.addEventListener('touchstart', function(e) {
@@ -223,18 +230,83 @@ function refreshLibrary() {
   };
 }
 
+// 删除确认：自绘弹窗（Operit WebView 里原生 confirm() 可能不弹）
 function confirmDelete(bookId, title) {
-  if (confirm('删除《' + title + '》？')) {
-    var tx = db.transaction(STORE_BOOKS, 'readwrite');
-    tx.objectStore(STORE_BOOKS).delete(bookId);
-    tx.oncomplete = function() { refreshLibrary(); showToast('已删除'); };
+  if ($('delBookAlert')) return;
+  var ov = document.createElement('div');
+  ov.id = 'delBookAlert';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:var(--bg-0);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:320px;width:85%;text-align:center;';
+  box.innerHTML =
+    '<div style="margin-bottom:12px;"><span class="mi" style="font-size:36px;color:var(--danger);">delete_outline</span></div>' +
+    '<div style="font-family:var(--font-read);font-size:15px;font-weight:600;margin-bottom:8px;">' + _t('shelf.delTitle') + '</div>' +
+    '<div style="font-family:var(--font-read);font-size:13px;color:var(--ink-2);line-height:1.6;margin-bottom:18px;">' + _t('shelf.delDesc', {title: escHtml(title || _t('common.unknown'))}) + '</div>' +
+    '<div style="display:flex;gap:10px;justify-content:center;">' +
+      '<button data-act="cancel" style="flex:1;background:transparent;color:var(--ink);border:1px solid var(--border);border-radius:8px;padding:10px 0;font-size:13px;font-weight:600;cursor:pointer;">' + _t('common.cancel') + '</button>' +
+      '<button data-act="ok" style="flex:1;background:var(--danger);color:#fff;border:none;border-radius:8px;padding:10px 0;font-size:13px;font-weight:600;cursor:pointer;">' + _t('common.delete') + '</button>' +
+    '</div>';
+  ov.appendChild(box);
+  ov.addEventListener('click', function(e) {
+    var act = e.target && e.target.getAttribute && e.target.getAttribute('data-act');
+    if (e.target === ov || act === 'cancel') { ov.remove(); return; }
+    if (act === 'ok') { ov.remove(); doDeleteBook(bookId); }
+  });
+  document.body.appendChild(ov);
+}
+
+// 真正删除：IndexedDB 书本 + localStorage 里该书的进度/划线/笔记
+function doDeleteBook(bookId) {
+  if (!db) { showToast(_t('shelf.delFail')); return; }
+  var tx = db.transaction(STORE_BOOKS, 'readwrite');
+  tx.objectStore(STORE_BOOKS).delete(bookId);
+  tx.oncomplete = function() {
+    purgeBookStorage(bookId);
+    refreshLibrary();
+    try {
+      var notesPage = $('pageNotes');
+      if (notesPage && notesPage.classList.contains('active')) renderNotesTab();
+    } catch(e) {}
+    showToast(_t('common.deleted'));
+  };
+  tx.onerror = function() { showToast(_t('shelf.delFail')); };
+}
+
+function purgeBookStorage(bookId) {
+  var id = String(bookId);
+  var exact = ['cr_progress_' + id, 'cr_hl_all_' + id, 'cr_notes_' + id];
+  var prefix = 'cr_hl_' + id + '_';
+  var kill = [];
+  for (var i = 0; i < localStorage.length; i++) {
+    var k = localStorage.key(i);
+    if (!k) continue;
+    if (exact.indexOf(k) >= 0 || (k.indexOf(prefix) === 0 && /^\d+$/.test(k.slice(prefix.length)))) kill.push(k);
+  }
+  kill.forEach(function(k) { try { localStorage.removeItem(k); } catch(e) {} });
+  if (localStorage.getItem('cr_last_book') === id) {
+    try { localStorage.removeItem('cr_last_book'); } catch(e) {}
+  }
+  return kill.length;
+}
+
+// 书架编辑模式
+function toggleShelfEdit(btn) {
+  var grid = $('bookGrid');
+  if (!grid) return;
+  var on = grid.classList.toggle('editing');
+  if (btn) {
+    btn.classList.toggle('active', on);
+    var ic = btn.querySelector('.mi');
+    if (ic) ic.textContent = on ? 'check' : 'edit';
+    btn.title = on ? _t('shelf.done') : _t('shelf.edit');
   }
 }
+window.toggleShelfEdit = toggleShelfEdit;
 
 // ============ 导入 EPUB ============
 function importEpub(file) {
   if (!file) return;
-  showToast('导入中...');
+  showToast(_t('imp.loading'));
 
   // 同时读取 base64（存储用）和 ArrayBuffer（解析用）
   var b64Result = null;
@@ -255,19 +327,19 @@ function importEpub(file) {
             fileData: b64Result,
             addedAt: Date.now()
           };
-          if (!db) { showToast('数据库未就绪'); return; }
+          if (!db) { showToast(_t('imp.dbNotReady')); return; }
           var tx = db.transaction(STORE_BOOKS, 'readwrite');
           var addReq = tx.objectStore(STORE_BOOKS).add(record);
           addReq.onsuccess = function() {
-            showToast('导入成功');
+            showToast(_t('imp.ok'));
             refreshLibrary();
           };
           addReq.onerror = function(e) {
-            showToast('存储失败: ' + e.target.error);
+            showToast(_t('imp.storeFail') + e.target.error);
           };
         });
       }).catch(function(err) {
-        showToast('解析失败: ' + err.message);
+        showToast(_t('imp.parseFail') + err.message);
       });
     };
     readerAB.readAsArrayBuffer(file);
@@ -277,12 +349,12 @@ function importEpub(file) {
 
 // ============ 导入 TXT/MD ============
 function importText(file, isMd) {
-  showToast('导入中...');
+  showToast(_t('imp.loading'));
   var reader = new FileReader();
   reader.onload = function(ev) {
     var ab = ev.target.result;
     var text = decodeTextBuffer(ab);
-    if (!text) { showToast('编码无法识别'); return; }
+    if (!text) { showToast(_t('imp.badEncoding')); return; }
     var title = file.name.replace(/\.(txt|md)$/i, '');
     // 按标题模式分章（## 或 第X章/第X节 或连续空行分段）
     var txtChapters = splitTextChapters(text, isMd);
@@ -295,15 +367,15 @@ function importText(file, isMd) {
       __isMd: isMd,
       addedAt: Date.now()
     };
-    if (!db) { showToast('数据库未就绪'); return; }
+    if (!db) { showToast(_t('imp.dbNotReady')); return; }
     var tx = db.transaction(STORE_BOOKS, 'readwrite');
     var addReq = tx.objectStore(STORE_BOOKS).add(record);
     addReq.onsuccess = function() {
-      showToast('导入成功');
+      showToast(_t('imp.ok'));
       refreshLibrary();
     };
   };
-  reader.onerror = function() { showToast('读取文件失败'); };
+  reader.onerror = function() { showToast(_t('imp.readFail')); };
   reader.readAsArrayBuffer(file);
 }
 
@@ -364,7 +436,7 @@ function scoreDecodedText(text) {
 function splitTextChapters(text, isMd) {
   var lines = text.split(/\r?\n/);
   var chapters = [];
-  var currentTitle = '开头';
+  var currentTitle = _t('txt.opening');
   var currentLines = [];
   // 标题匹配模式
   var headingRe = isMd
@@ -388,7 +460,7 @@ function splitTextChapters(text, isMd) {
   }
   // 如果没分出章节，整本当一章
   if (chapters.length === 0) {
-    chapters.push({ title: '全文', lines: lines });
+    chapters.push({ title: _t('txt.fullText'), lines: lines });
   }
   return chapters;
 }
@@ -444,7 +516,7 @@ function openBook(bookId) {
     if (!book && typeof bookId === 'string' && /^\d+$/.test(bookId)) {
       return openBook(Number(bookId));
     }
-    if (!book) { showToast('书籍数据丢失'); return; }
+    if (!book) { showToast(_t('book.dataLost')); return; }
     currentBookId = bookId;
     currentBookTitle = book.title;
     localStorage.setItem('cr_last_book', String(bookId));
@@ -469,7 +541,7 @@ function openBook(bookId) {
     }
 
     // EPUB 类型
-    if (!book.fileData) { showToast('书籍数据丢失'); return; }
+    if (!book.fileData) { showToast(_t('book.dataLost')); return; }
     var b64 = book.fileData;
     var comma = b64.indexOf(',');
     var raw = comma >= 0 ? b64.substring(comma + 1) : b64;
@@ -481,7 +553,7 @@ function openBook(bookId) {
       epubZip = zip;
       return loadEpub();
     }).catch(function(err) {
-      showToast('打开失败: ' + err.message);
+      showToast(_t('book.openFail') + err.message);
     });
   };
 }
@@ -954,7 +1026,7 @@ function convertToNoteRef(a, noteHtml, parsed) {
           return;
         }
         var f = parsed.file ? epubZip.file(parsed.file) : null;
-        if (!f || f.dir) { showNotePopup('<p style="color:var(--ink-3);">未找到注释内容<br><small>' + escHtml(String(parsed.file)) + '</small></p>'); return; }
+        if (!f || f.dir) { showNotePopup('<p style="color:var(--ink-3);">' + _t('fn.notFound') + '<br><small>' + escHtml(String(parsed.file)) + '</small></p>'); return; }
         f.async('text').then(function(raw) {
           var parser2 = new DOMParser();
           var doc2 = parser2.parseFromString(raw, 'text/html');
@@ -977,15 +1049,15 @@ function convertToNoteRef(a, noteHtml, parsed) {
             }
           }
           var target2 = dd.querySelector('[id="' + parsed.id.replace(/"/g, '\\"') + '"]') || dd.querySelector('#' + CSS.escape(parsed.id)) || dd.querySelector('[name="' + parsed.id.replace(/"/g, '\\"') + '"]');
-          var html = target2 ? extractNoteHtml(target2) : '<p style="color:var(--ink-3);">未找到锚点 #' + escHtml(parsed.id) + '</p>';
+          var html = target2 ? extractNoteHtml(target2) : '<p style="color:var(--ink-3);">' + _t('fn.noAnchor') + '' + escHtml(parsed.id) + '</p>';
           __noteCache[cacheKey] = html;
           showNotePopup(html);
         }).catch(function(err) {
-          showNotePopup('<p style="color:var(--danger,#c25946);">加载失败：<br><small>' + escHtml(String(err && err.message || err)) + '</small></p>');
+          showNotePopup('<p style="color:var(--danger,#c25946);">' + _t('fn.loadFail') + '<br><small>' + escHtml(String(err && err.message || err)) + '</small></p>');
         });
       }
     } catch(err) {
-      showNotePopup('<p style="color:var(--danger,#c25946);">出错：<br><small>' + escHtml(String(err && err.message || err)) + '</small></p>');
+      showNotePopup('<p style="color:var(--danger,#c25946);">' + _t('fn.error') + '<br><small>' + escHtml(String(err && err.message || err)) + '</small></p>');
     }
   });
 }
@@ -1002,7 +1074,7 @@ function showNotePopup(html) {
     '<div class="fn-sheet">' +
       '<div class="fn-header">' +
         '<span class="mi" style="font-size:16px;color:var(--accent)">menu_book</span>' +
-        '<span class="fn-title">注释</span>' +
+        '<span class="fn-title">' + _t('fn.title') + '</span>' +
         '<button class="fn-close"><span class="mi">close</span></button>' +
       '</div>' +
       '<div class="fn-body">' + html + '</div>' +
@@ -1080,7 +1152,7 @@ function loadChapter(idx, restoreScroll) {
     if (found2) { ch.fullPath = found2; chFile = epubZip.file(found2); }
   }
   if (!chFile) {
-    showToast('章节文件缺失: ' + ch.fullPath);
+    showToast(_t('book.chMissing') + ch.fullPath);
     return Promise.resolve();
   }
 
@@ -1479,7 +1551,7 @@ window.setPageMode = setPageMode;
 function togglePageMode() {
   var newMode = __pageMode === 'page' ? 'scroll' : 'page';
   setPageMode(newMode);
-  showToast(newMode === 'page' ? '翻页模式' : '滚动模式');
+  showToast(newMode === 'page' ? _t('mode.page') : _t('mode.scroll'));
 }
 window.togglePageMode = togglePageMode;
 
@@ -1869,10 +1941,10 @@ function getChapterTexts(done) {
 window.doSearch = function() {
   var kw = ($('searchInput').value || '').trim();
   var wrap = $('searchResults');
-  if (!kw) { wrap.innerHTML = '<div style="text-align:center;color:var(--ink-3);font-size:12px;padding:30px 20px;">请输入关键词</div>'; return; }
-  if (!chapters || !chapters.length) { wrap.innerHTML = '<div style="text-align:center;color:var(--ink-3);font-size:12px;padding:30px;">书籍未加载</div>'; return; }
+  if (!kw) { wrap.innerHTML = '<div style="text-align:center;color:var(--ink-3);font-size:12px;padding:30px 20px;">' + _t('search.needKw') + '</div>'; return; }
+  if (!chapters || !chapters.length) { wrap.innerHTML = '<div style="text-align:center;color:var(--ink-3);font-size:12px;padding:30px;">' + _t('search.noBook') + '</div>'; return; }
 
-  wrap.innerHTML = '<div style="text-align:center;color:var(--ink-3);font-size:12px;padding:30px;">搜索中...</div>';
+  wrap.innerHTML = '<div style="text-align:center;color:var(--ink-3);font-size:12px;padding:30px;">' + _t('search.searching') + '</div>';
 
   getChapterTexts(function(textArr) {
     var results = [];
@@ -1899,10 +1971,10 @@ window.doSearch = function() {
     }
 
     if (results.length === 0) {
-      wrap.innerHTML = '<div style="text-align:center;color:var(--ink-3);font-size:13px;padding:30px;">未找到「' + kw.replace(/</g,'&lt;') + '」</div>';
+      wrap.innerHTML = '<div style="text-align:center;color:var(--ink-3);font-size:13px;padding:30px;">' + _t('search.none', {kw: kw.replace(/</g,'&lt;')}) + '</div>';
       return;
     }
-    wrap.innerHTML = '<div style="padding:8px 14px;font-size:11px;color:var(--ink-3);">共 ' + results.length + ' 处匹配' + (results.length >= 100 ? '（已截断）' : '') + '</div>';
+    wrap.innerHTML = '<div style="padding:8px 14px;font-size:11px;color:var(--ink-3);">' + _t('search.count', {n: results.length}) + (results.length >= 100 ? _t('search.truncated') : '') + '</div>';
     results.forEach(function(r) {
       var item = document.createElement('div');
       item.style.cssText = 'padding:10px 14px;border-bottom:1px solid var(--rule,rgba(0,0,0,0.06));cursor:pointer;font-family:var(--reader-font, var(--font-read));';
@@ -2137,7 +2209,7 @@ function init() {
       var ext = (file.name.split('.').pop() || '').toLowerCase();
       if (ext === 'epub') importEpub(file);
       else if (ext === 'txt' || ext === 'md') importText(file, ext === 'md');
-      else showToast('不支持的格式: .' + ext);
+      else showToast(_t('imp.unsupported') + ext);
       e.target.value = '';
     }
   };
@@ -2182,6 +2254,49 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
+// ============ 共读称呼（发给 AI 的人称） ============
+// 只存一个名字 cr-persona-name：空 = 用户；填「我 / I / me」= 第一人称模板；其他 = 按名字称呼
+var PERSONA_SELF = ['我', 'i', 'me', 'myself'];
+function getPersona() {
+  var name = (localStorage.getItem('cr-persona-name') || '').trim();
+  if (!name) return { mode: 'user', name: '' };
+  if (PERSONA_SELF.indexOf(name.toLowerCase()) >= 0) return { mode: 'me', name: '' };
+  return { mode: 'name', name: name };
+}
+function setPersonaName(v) {
+  localStorage.setItem('cr-persona-name', String(v || '').replace(/[\r\n{}]/g, '').slice(0, 24));
+  renderPersonaPreview();
+}
+function renderPersonaPreview() {
+  var el = $('personaPreview');
+  if (!el) return;
+  var p = getPersona();
+  var line;
+  if (p.mode === 'me') line = _t('persona.prevMe');
+  else if (p.mode === 'name') line = _t('persona.prevSel', {user: p.name, User: p.name});
+  else line = _t('persona.prevDef');
+  el.textContent = _t('set.personaPrev') + line;
+}
+function syncPersonaUI() {
+  var inp = $('personaNameInput');
+  if (inp && document.activeElement !== inp) inp.value = localStorage.getItem('cr-persona-name') || '';
+  renderPersonaPreview();
+}
+window.setPersonaName = setPersonaName;
+window.getPersona = getPersona;
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', syncPersonaUI);
+else syncPersonaUI();
+
+// 语言切换：重绘动态内容（静态文案由 i18n.js 的 applyI18n 处理）
+window.addEventListener('cr-lang-change', function() {
+  try { refreshLibrary(); } catch(e) {}
+  try { syncPersonaUI(); } catch(e) {}
+  try {
+    var notesPage = $('pageNotes');
+    if (notesPage && notesPage.classList.contains('active')) renderNotesTab();
+  } catch(e) {}
+});
 
 // 兜底进度保存：页面隐藏/关闭/切换时自动存
 document.addEventListener('visibilitychange', function() {
@@ -2308,7 +2423,7 @@ function doHighlight(isAI) {
 
   window.getSelection().removeAllRanges();
   saveHighlights();
-  showToast(isAI ? 'AI 已划线' : '已划线');
+  showToast(isAI ? _t('hl.aiMarked') : _t('hl.marked'));
 
   // 切换菜单：隐藏操作行，显示样式行
   lastHighlightMark = mark;
@@ -2335,7 +2450,7 @@ function doCopy() {
   }
   window.getSelection().removeAllRanges();
   hlMenu.classList.remove('active');
-  showToast('已复制');
+  showToast(_t('hl.copied'));
 }
 
 // 保存所有高亮（同 group 的多个 mark 合并为一条记录）
@@ -2569,7 +2684,7 @@ function showAIAnnotationPopup(text, annotation) {
     aiArea.className = 'ai-annotation-area';
     input.parentNode.insertBefore(aiArea, input);
   }
-  aiArea.innerHTML = '<div class="ai-annotation-header"><span class="mi" style="font-size:14px;vertical-align:middle">smart_toy</span> AI 批注</div>' +
+  aiArea.innerHTML = '<div class="ai-annotation-header"><span class="mi" style="font-size:14px;vertical-align:middle">smart_toy</span> ' + _t('note.aiHeader') + '</div>' +
     '<div class="ai-annotation-content">' + annotation.replace(/</g, '&lt;').replace(/\n/g, '<br>') + '</div>';
   aiArea.style.display = 'block';
   popup.classList.add('active');
@@ -2722,7 +2837,7 @@ $('pageText').addEventListener('click', function(e) {
       $('notePopupInput').parentNode.insertBefore(aiArea, $('notePopupInput'));
     }
     var aiTitle = coreadConfig.cardName || 'AI';
-    aiArea.innerHTML = '<div class="ai-annotation-header"><span class="mi" style="font-size:14px;vertical-align:middle">smart_toy</span> ' + escHtml(aiTitle) + ' 批注</div>' +
+    aiArea.innerHTML = '<div class="ai-annotation-header"><span class="mi" style="font-size:14px;vertical-align:middle">smart_toy</span> ' + _t('note.whoHeader', {who: escHtml(aiTitle)}) + '</div>' +
       '<div class="ai-annotation-content">' + aiNote.replace(/</g, '&lt;').replace(/\n/g, '<br>') + '</div>';
     aiArea.style.display = 'block';
   } else if (aiArea) {
@@ -2757,7 +2872,7 @@ function saveNote() {
   }
   
   $('notePopup').classList.remove('active');
-  showToast(noteText ? '批注已保存' : '批注已清除');
+  showToast(noteText ? _t('note.saved') : _t('note.cleared'));
 }
 
 function closeNote() {
@@ -2802,7 +2917,7 @@ function deleteHighlightNote() {
   localStorage.setItem('cr_notes_' + currentBookId, JSON.stringify(notes));
   saveHighlights();
   $('notePopup').classList.remove('active');
-  showToast('已删除划线');
+  showToast(_t('hl.deleted'));
 }
 
 window.saveNote = saveNote;
@@ -2824,7 +2939,7 @@ function renderNotesTab() {
     req.onsuccess = function(e) {
       var cursor = e.target.result;
       if (cursor) {
-        bookNames[String(cursor.value.id)] = cursor.value.title || '未知';
+        bookNames[String(cursor.value.id)] = cursor.value.title || _t('common.unknown');
         cursor.continue();
       } else {
         // 所有书名读完，开始渲染
@@ -2847,7 +2962,7 @@ function doRenderNotes(wrap, bookNames) {
       var data = JSON.parse(localStorage.getItem(key) || '{}');
       // 书名优先从 IndexedDB 读，没有则从划线数据本身提取
       var title = bookNames[bookId];
-      if (!title || title === '未知') {
+      if (!title || title === _t('common.unknown')) {
         // 从划线条目里找 chapterTitle 所属的书名
         var chapters = Object.keys(data);
         for (var ci = 0; ci < chapters.length && !title; ci++) {
@@ -2863,7 +2978,7 @@ function doRenderNotes(wrap, bookNames) {
           }
         }
       }
-      allBooks.push({ bookId: bookId, data: data, title: title || '未知书籍' });
+      allBooks.push({ bookId: bookId, data: data, title: title || _t('notes.unknownBook') });
     }
   }
 
@@ -2877,7 +2992,7 @@ function doRenderNotes(wrap, bookNames) {
   });
 
   if (allBooks.length === 0) {
-    wrap.innerHTML = '<div class="notes-empty"><span class="mi">edit_note</span><p>还没有划线批注</p><p class="sub">在阅读时选中文字并划线即可添加</p></div>';
+    wrap.innerHTML = '<div class="notes-empty"><span class="mi">edit_note</span><p>' + _t('notes.empty') + '</p><p class="sub">' + _t('notes.emptySub') + '</p></div>';
     return;
   }
 
@@ -2885,7 +3000,7 @@ function doRenderNotes(wrap, bookNames) {
   if (allBooks.length > 1) {
     var filterDiv = document.createElement('div');
     filterDiv.className = 'notes-filter';
-    filterDiv.innerHTML = '<button class="notes-filter-btn active" data-book="all">全部</button>';
+    filterDiv.innerHTML = '<button class="notes-filter-btn active" data-book="all">' + _t('notes.all') + '</button>';
     allBooks.forEach(function(book) {
       filterDiv.innerHTML += '<button class="notes-filter-btn" data-book="' + escHtml(book.bookId) + '">' + escHtml((book.title || '').substring(0, 8)) + '</button>';
     });
@@ -2935,7 +3050,7 @@ function doRenderNotes(wrap, bookNames) {
   allItems.sort(function(a, b) { return b.time - a.time; });
 
   if (allItems.length === 0) {
-    wrap.innerHTML += '<div class="notes-empty"><span class="mi">edit_note</span><p>还没有划线批注</p><p class="sub">在阅读时选中文字并划线即可添加</p></div>';
+    wrap.innerHTML += '<div class="notes-empty"><span class="mi">edit_note</span><p>' + _t('notes.empty') + '</p><p class="sub">' + _t('notes.emptySub') + '</p></div>';
     return;
   }
 
@@ -2956,13 +3071,13 @@ function doRenderNotes(wrap, bookNames) {
     // 批注数量角标：用户批注 + AI 批注
     var badgeCount = (item.note ? 1 : 0) + (item.aiNote ? 1 : 0);
     var badgeHtml = badgeCount > 0
-      ? '<span class="note-card-badge" title="批注数"><span class="mi" style="font-size:12px">chat_bubble</span>' + badgeCount + '</span>'
+      ? '<span class="note-card-badge" title="' + _t('notes.badge') + '"><span class="mi" style="font-size:12px">chat_bubble</span>' + badgeCount + '</span>'
       : '';
 
     // 删除按钮（长按卡片触发确认）
     var delBtnHtml = '<button class="note-card-del" data-notekey="' +
       item.chIdx + ':' + (item.text || '').substring(0, 50).replace(/"/g, '&quot;') +
-      '" data-bookid="' + item.bookId + '" title="删除"><span class="mi">delete_outline</span></button>';
+      '" data-bookid="' + item.bookId + '" title="' + _t('common.delete') + '"><span class="mi">delete_outline</span></button>';
 
     // 外层精简：只显示原文引用 + 元信息，不直接展示批注内容
     card.innerHTML =
@@ -2984,7 +3099,7 @@ function doRenderNotes(wrap, bookNames) {
         ev.stopPropagation();
         var noteKey = this.getAttribute('data-notekey');
         var bookId = this.getAttribute('data-bookid');
-        if (!confirm('删除这条划线及其批注？')) return;
+        if (!confirm(_t('notes.confirmDel'))) return;
         var self = this;
         if (deleteNoteFromOverview(noteKey, bookId)) {
           // 删除成功：淡出移除当前卡片，不整页刷新
@@ -2995,7 +3110,7 @@ function doRenderNotes(wrap, bookNames) {
             c.style.transform = 'translateX(20px)';
             setTimeout(function() { c.remove(); }, 250);
           }
-          showToast('已删除');
+          showToast(_t('common.deleted'));
           // 同步更新筛选标签（该书可能已无划线）
           updateNotesFilter(bookId);
         }
@@ -3050,22 +3165,22 @@ function openNoteDetail(item) {
   var aiDotStyle = coreadConfig.aiDotColor ? 'background:' + coreadConfig.aiDotColor : '';
 
   var userNoteHtml = item.note
-    ? '<div class="nd-section"><div class="nd-label"><span class="mi" style="font-size:14px">person</span> 我的批注</div><div class="nd-note nd-user-note">' + item.note.replace(/</g, '&lt;').replace(/\n/g, '<br>') + '</div></div>'
+    ? '<div class="nd-section"><div class="nd-label"><span class="mi" style="font-size:14px">person</span> ' + _t('nd.mine') + '</div><div class="nd-note nd-user-note">' + item.note.replace(/</g, '&lt;').replace(/\n/g, '<br>') + '</div></div>'
     : '';
   var aiNoteHtml = item.aiNote
-    ? '<div class="nd-section"><div class="nd-label"><span class="ai-dot" style="' + aiDotStyle + '"></span> ' + escHtml(aiTitle) + ' 批注</div><div class="nd-note nd-ai-note">' + item.aiNote.replace(/</g, '&lt;').replace(/\n/g, '<br>') + '</div></div>'
+    ? '<div class="nd-section"><div class="nd-label"><span class="ai-dot" style="' + aiDotStyle + '"></span> ' + _t('note.whoHeader', {who: escHtml(aiTitle)}) + '</div><div class="nd-note nd-ai-note">' + item.aiNote.replace(/</g, '&lt;').replace(/\n/g, '<br>') + '</div></div>'
     : '';
   var emptyHintHtml = (!item.note && !item.aiNote)
-    ? '<div class="nd-empty">这条划线还没有批注<br><span class="sub">在阅读页点这条划线可以添加</span></div>'
+    ? '<div class="nd-empty">' + _t('nd.empty') + '<br><span class="sub">' + _t('nd.emptySub') + '</span></div>'
     : '';
 
   overlay.innerHTML =
     '<div class="nd-sheet">' +
       '<div class="nd-header">' +
         '<button class="nd-back" id="ndBackBtn"><span class="mi">arrow_back</span></button>' +
-        '<div class="nd-header-title">批注详情</div>' +
-        '<button class="nd-share" id="ndShareBtn" title="生成分享卡片"><span class="mi">ios_share</span></button>' +
-        '<button class="nd-jump" id="ndJumpBtn" title="跳转到原文"><span class="mi">menu_book</span></button>' +
+        '<div class="nd-header-title">' + _t('nd.title') + '</div>' +
+        '<button class="nd-share" id="ndShareBtn" title="' + _t('nd.share') + '"><span class="mi">ios_share</span></button>' +
+        '<button class="nd-jump" id="ndJumpBtn" title="' + _t('nd.jump') + '"><span class="mi">menu_book</span></button>' +
       '</div>' +
       '<div class="nd-body">' +
         '<div class="nd-quote' + (item.style ? ' ' + item.style : '') + '"' + (item.color ? ' style="border-left-color:' + item.color + '"' : '') + '>' + item.text.replace(/</g, '&lt;') + '</div>' +
@@ -3272,11 +3387,11 @@ function drawShareBanner(c, x, y, w, h, title, author, T) {
   c.strokeRect(x, y, gw * px, gh * px);
 
   // -- 中央藏书票题签（双线框） --
-  var t2 = '《' + String(title || '') + '》';
+  var t2 = _t('card.qOpen') + String(title || '') + _t('card.qClose');
   var fs = 24;
   c.font = fs + 'px ' + T.fontRead;
   if (c.measureText(t2).width > w - 110) { fs = 20; c.font = fs + 'px ' + T.fontRead; }
-  while (t2.length > 4 && c.measureText(t2).width > w - 90) t2 = t2.slice(0, -3) + '…》';
+  while (t2.length > 4 && c.measureText(t2).width > w - 90) t2 = t2.slice(0, -3) + '…' + _t('card.qClose');
   var au = String(author || '').trim();
   c.font = '15px ' + T.fontMono;
   while (au.length > 2 && c.measureText(au).width > w - 120) au = au.slice(0, -1);
@@ -3447,14 +3562,14 @@ function drawShareStamp(c, x, y, w, h, seed0, postmark, T) {
   }
   // 票面家具：面值（左上）+ 铭记（底边）
   c.textAlign = 'left';
-  var fv = ['1分', '2分', '5分', '8分', '1角', '2角', '5角', '8角', '1元', '2元'][Math.floor(rnd() * 10)];
+  var fv = _t('card.stampFace').split('|')[Math.floor(rnd() * 10)];
   c.font = '700 12px ' + T.fontMono;
   var fw = c.measureText(fv).width;
   c.fillStyle = T.card;
   c.fillRect(ix - 1, iy - 1, fw + 8, 16);
   c.fillStyle = T.ink;
   c.fillText(fv, ix + 3, iy + 11);
-  var mz = 'COREAD邮政';
+  var mz = _t('card.stampMark');
   c.font = '10px ' + T.fontMono;
   var mw = c.measureText(mz).width;
   c.fillStyle = T.card;
@@ -3513,9 +3628,9 @@ function generateShareCard(item, btn) {
       zh + '<span style="float:right;font-weight:400;opacity:0.6;">' + en + '</span></button>';
   }
   ov.innerHTML = '<div style="width:264px;padding:20px;background:var(--bg-0);border:2px solid var(--border);border-radius:var(--radius);box-shadow:6px 6px 0 var(--border);">' +
-    '<div style="font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:0.14em;color:var(--ink-3);text-transform:uppercase;">EXPORT STYLE · 选择样式</div>' +
-    optHtml('receipt', '小票风', 'RECEIPT') +
-    optHtml('card', '卡片风', 'CARD') +
+    '<div style="font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:0.14em;color:var(--ink-3);text-transform:uppercase;">' + _t('card.pickStyle') + '</div>' +
+    optHtml('receipt', _t('card.receipt'), 'RECEIPT') +
+    optHtml('card', _t('card.card'), 'CARD') +
     '</div>';
   document.body.appendChild(ov);
   ov.addEventListener('click', function(e) {
@@ -3546,7 +3661,7 @@ function generateReceiptStyle(item, btn) {
   function go(meta) {
     if (fired) return;
     fired = true;
-    try { drawReceipt((meta && meta.author) || ''); } catch(e) { showToast('生成失败: ' + e.message); }
+    try { drawReceipt((meta && meta.author) || ''); } catch(e) { showToast(_t('card.genFail') + e.message); }
     restore();
   }
   Promise.all([
@@ -3586,7 +3701,7 @@ function generateReceiptStyle(item, btn) {
     mctx.font = F_QUOTE;
     var quoteLines = wrapShareText(mctx, quote, cw);
     mctx.font = F_NOTE;
-    var userLines = userNote ? wrapShareText(mctx, '[我] ' + userNote, cw) : [];
+    var userLines = userNote ? wrapShareText(mctx, '[' + _t('card.me') + '] ' + userNote, cw) : [];
     var aiLines = aiNote ? wrapShareText(mctx, '[' + aiTitle + '] ' + aiNote, cw) : [];
 
     // 品名区高度（书籍信息行 + 印花税票取大者）
@@ -3635,19 +3750,19 @@ function generateReceiptStyle(item, btn) {
     // -- 店头 --
     c.fillStyle = T.ink;
     c.font = '700 26px ' + FONT_MONO;
-    centerText('CoRead 共读书店', cy);
+    centerText(_t('rc.shop'), cy);
     cy += 30;
     c.fillStyle = T.ink3;
     c.font = F_SMALL;
-    centerText('· 人 机 共 读 凭 证 ·', cy);
+    centerText(_t('rc.sub'), cy);
     cy += 24;
     solidLine(cy, 2.5); solidLine(cy + 4, 1);
     cy += 32;
 
     // -- 收银信息 --
     c.font = F_SMALL;
-    rowLR('收银员', aiTitle, cy); cy += 26;
-    rowLR('时间', dateStr + '  ' + timeStr, cy); cy += 24;
+    rowLR(_t('rc.cashier'), aiTitle, cy); cy += 26;
+    rowLR(_t('rc.time'), dateStr + '  ' + timeStr, cy); cy += 24;
     dashLine(cy); cy += 34;
 
     // -- 品名区：书籍信息行（左）+ 印花税票（右） --
@@ -3656,10 +3771,10 @@ function generateReceiptStyle(item, btn) {
     var blockTop = cy, ry = cy + 26;
     var F_TITLE = '700 19px ' + FONT_MONO;
     // 品名
-    var tt = '《' + bookTitle + '》';
+    var tt = _t('card.qOpen') + bookTitle + _t('card.qClose');
     mctx.font = F_TITLE;
-    while (tt.length > 4 && mctx.measureText(tt).width > infoMax) tt = tt.slice(0, -3) + '…》';
-    c.font = F_SMALL; c.fillStyle = T.ink3; c.fillText('品名', cxL, ry);
+    while (tt.length > 4 && mctx.measureText(tt).width > infoMax) tt = tt.slice(0, -3) + '…' + _t('card.qClose');
+    c.font = F_SMALL; c.fillStyle = T.ink3; c.fillText(_t('rc.item'), cxL, ry);
     c.font = F_TITLE; c.fillStyle = T.ink; c.fillText(tt, cxL + labelW, ry);
     ry += 32;
     // 著者
@@ -3667,7 +3782,7 @@ function generateReceiptStyle(item, btn) {
       var auStr = String(bookAuthor).trim();
       mctx.font = F_SMALL;
       while (auStr.length > 2 && mctx.measureText(auStr).width > infoMax) auStr = auStr.slice(0, -1);
-      c.font = F_SMALL; c.fillStyle = T.ink3; c.fillText('著者', cxL, ry);
+      c.font = F_SMALL; c.fillStyle = T.ink3; c.fillText(_t('rc.author'), cxL, ry);
       c.fillStyle = T.ink; c.fillText(auStr, cxL + labelW, ry);
       ry += 32;
     }
@@ -3676,7 +3791,7 @@ function generateReceiptStyle(item, btn) {
       var chStr = chapter;
       mctx.font = F_SMALL;
       while (chStr.length > 2 && mctx.measureText(chStr).width > infoMax) chStr = chStr.slice(0, -1);
-      c.font = F_SMALL; c.fillStyle = T.ink3; c.fillText('章节', cxL, ry);
+      c.font = F_SMALL; c.fillStyle = T.ink3; c.fillText(_t('rc.chapter'), cxL, ry);
       c.fillStyle = T.ink2; c.fillText(chStr, cxL + labelW, ry);
       ry += 32;
     }
@@ -3688,7 +3803,7 @@ function generateReceiptStyle(item, btn) {
     // -- 摘录 --
     c.fillStyle = T.ink;
     c.font = F_LABEL;
-    c.fillText('▸ 摘录', cxL, cy);
+    c.fillText(_t('rc.excerpt'), cxL, cy);
     c.save(); c.textAlign = 'right'; c.fillText('×1', cxR, cy); c.restore();
     cy += 34;
     c.font = F_QUOTE;
@@ -3700,7 +3815,7 @@ function generateReceiptStyle(item, btn) {
       dashLine(cy); cy += 36;
       c.font = F_LABEL;
       c.fillStyle = T.ink;
-      c.fillText('▸ 批注', cxL, cy);
+      c.fillText(_t('rc.notes'), cxL, cy);
       c.save(); c.textAlign = 'right'; c.fillText('×' + noteCount, cxR, cy); c.restore();
       cy += 32;
       c.font = F_NOTE;
@@ -3720,13 +3835,13 @@ function generateReceiptStyle(item, btn) {
     dashLine(cy); cy += 38;
     c.font = '700 20px ' + FONT_MONO;
     c.fillStyle = T.ink;
-    c.fillText('本单共读', cxL, cy);
-    c.save(); c.textAlign = 'right'; c.fillText(people + ' 人', cxR, cy); c.restore();
+    c.fillText(_t('rc.total'), cxL, cy);
+    c.save(); c.textAlign = 'right'; c.fillText(_t('rc.people', {n: people}), cxR, cy); c.restore();
     cy += 30;
     solidLine(cy, 1); cy += 30;
     c.fillStyle = T.ink3;
     c.font = F_SMALL;
-    centerText('谢谢惠读 · 欢迎下次光临', cy);
+    centerText(_t('rc.thanks'), cy);
     cy += 34;
 
     // -- 条码 + 流水号 --
@@ -3847,7 +3962,7 @@ function generateCardStyle(item, btn) {
   function go(meta) {
     if (fired) return;
     fired = true;
-    try { drawZineCard((meta && meta.author) || ''); } catch(e) { showToast('生成失败: ' + e.message); }
+    try { drawZineCard((meta && meta.author) || ''); } catch(e) { showToast(_t('card.genFail') + e.message); }
     restore();
   }
   Promise.all([
@@ -3965,7 +4080,7 @@ function generateCardStyle(item, btn) {
     // ---- 书籍信息行 ----
     c.font = F_HEAD;
     c.fillStyle = T.ink2;
-    var metaStr = '《' + bookTitle + '》';
+    var metaStr = _t('card.qOpen') + bookTitle + _t('card.qClose');
     if (bookAuthor) metaStr += '  ' + bookAuthor;
     mctx.font = F_HEAD;
     while (metaStr.length > 4 && mctx.measureText(metaStr).width > cw) metaStr = metaStr.slice(0, -1) + '…';
@@ -4030,7 +4145,7 @@ function generateCardStyle(item, btn) {
     }
 
     if (userLines.length || aiLines.length) cy += 10;
-    drawNoteTape(userLines, '我', T.accent, -0.012);
+    drawNoteTape(userLines, _t('card.me'), T.accent, -0.012);
     drawNoteTape(aiLines, aiTitle, T.ink3, 0.018);
 
     // ---- 底部：邮戳（右，斜盖） + 日期信息（左） ----
@@ -4072,7 +4187,7 @@ function generateCardStyle(item, btn) {
     c.font = '13px ' + FONT_MONO;
     c.fillStyle = T.ink3;
     c.fillText(d.getFullYear() + '/' + pad2(d.getMonth() + 1) + '/' + pad2(d.getDate()), cx, bottomY + 20);
-    c.fillText('由 CoRead 人机共读生成', cx, bottomY + 38);
+    c.fillText(_t('pc.footer'), cx, bottomY + 38);
 
     cy = Math.max(bottomY + pmR * 2 + 4, bottomY + 50);
 
@@ -4123,10 +4238,10 @@ function showSharePreview(dataUrl, onExport) {
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:10001;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;';
   ov.innerHTML =
     '<img id="spImg" src="' + dataUrl + '" style="max-width:92%;max-height:66%;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,0.5);background:repeating-conic-gradient(#e0e0e0 0% 25%,#fff 0% 50%) 0 0/20px 20px;" />' +
-    '<div style="margin-top:16px;color:#fff;font-size:13px;opacity:0.6;">长按图片可直接分享到其他应用</div>' +
+    '<div style="margin-top:16px;color:#fff;font-size:13px;opacity:0.6;">' + _t('sp.hint') + '</div>' +
     '<div style="margin-top:14px;display:flex;gap:12px;">' +
-      '<button id="spExportBtn" style="padding:10px 28px;border:2px solid #fff;border-radius:20px;background:#fff;color:#222;font-size:14px;font-weight:600;">导出保存</button>' +
-      '<button id="spCloseBtn" style="padding:10px 28px;border:1.5px solid rgba(255,255,255,0.5);border-radius:20px;background:transparent;color:#fff;font-size:14px;">关闭</button>' +
+      '<button id="spExportBtn" style="padding:10px 28px;border:2px solid #fff;border-radius:20px;background:#fff;color:#222;font-size:14px;font-weight:600;">' + _t('sp.export') + '</button>' +
+      '<button id="spCloseBtn" style="padding:10px 28px;border:1.5px solid rgba(255,255,255,0.5);border-radius:20px;background:transparent;color:#fff;font-size:14px;">' + _t('common.close') + '</button>' +
     '</div>' +
     '<div id="spSaveStatus" style="margin-top:10px;color:#fff;font-size:12px;opacity:0;height:18px;"></div>';
   document.body.appendChild(ov);
@@ -4143,19 +4258,19 @@ function showSharePreview(dataUrl, onExport) {
         var res = null;
         try { res = JSON.parse(resRaw); } catch(e2) {}
         if (res && res.ok && res.path) {
-          status.textContent = '✓ 已保存：' + res.path.replace('/sdcard/Download/Operit/CoRead2/', '');
+          status.textContent = _t('sp.savedTo') + res.path.replace('/sdcard/Download/Operit/CoRead2/', '');
           status.style.opacity = '0.85';
-          btn.textContent = '已保存 ✓';
-          showToast('卡片已保存 ✓');
+          btn.textContent = _t('sp.savedBtn');
+          showToast(_t('sp.savedToast'));
           return;
         }
         console.log('saveShareCard 返回:', resRaw);
       }
-      status.textContent = '保存不可用，可长按图片保存';
+      status.textContent = _t('sp.unavailable');
       status.style.opacity = '0.6';
     } catch(e) {
       console.log('保存异常:', e);
-      status.textContent = '保存失败，可长按图片保存';
+      status.textContent = _t('sp.failed');
       status.style.opacity = '0.6';
     }
     btn.disabled = false;
@@ -4188,7 +4303,7 @@ function jumpToHighlight(item) {
                     typeof chapters !== 'undefined' && chapters && chapters.length > 0;
         if (ready || tries > 50) {
           clearInterval(waitTimer);
-          if (!ready) { showToast('书籍加载超时'); return; }
+          if (!ready) { showToast(_t('nd.loadTimeout')); return; }
           // 再缓冲一下，避开 openBook 内部"恢复上次进度"的异步覆盖
           setTimeout(function() { doJumpWithRetry(item, searchText, 0); }, 400);
         }
@@ -4421,7 +4536,7 @@ function deleteNoteFromOverview(noteKey, bookId) {
 
     return true;
   } catch(e) {
-    showToast('删除失败: ' + e);
+    showToast(_t('bm.delFail') + e);
     return false;
   }
 }
@@ -4436,7 +4551,7 @@ function openBookmarks() {
   list.innerHTML = '';
 
   if (!currentBookId) {
-    list.innerHTML = '<div class="notes-empty"><span class="mi">bookmark_border</span><p>请先打开一本书</p></div>';
+    list.innerHTML = '<div class="notes-empty"><span class="mi">bookmark_border</span><p>' + _t('bm.openFirst') + '</p></div>';
     panel.classList.add('active');
     return;
   }
@@ -4480,7 +4595,7 @@ function openBookmarks() {
   items.sort(function(a, b) { return b.time - a.time; });
 
   if (items.length === 0) {
-    list.innerHTML = '<div class="notes-empty"><span class="mi">bookmark_border</span><p>本书还没有划线</p><p class="sub">阅读时选中文字并划线即可添加</p></div>';
+    list.innerHTML = '<div class="notes-empty"><span class="mi">bookmark_border</span><p>' + _t('bm.empty') + '</p><p class="sub">' + _t('bm.emptySub') + '</p></div>';
     panel.classList.add('active');
     return;
   }
@@ -4488,7 +4603,7 @@ function openBookmarks() {
   // 统计信息
   var statDiv = document.createElement('div');
   statDiv.style.cssText = 'text-align:center;padding:8px 0 12px;font-size:13px;color:var(--ink);opacity:0.5';
-  statDiv.textContent = '共 ' + items.length + ' 条划线';
+  statDiv.textContent = _t('bm.count', {n: items.length});
   list.appendChild(statDiv);
 
   items.forEach(function(item) {
@@ -4525,7 +4640,7 @@ function openBookmarks() {
       '<div class="note-card-quote"' + colorBorder + '>' + item.text.replace(/</g, '&lt;') + '</div>' +
       noteHtml + aiNoteHtml +
       '<div class="note-card-meta"><span>' + item.chapter + '</span><span>' + timeStr + '</span>' +
-      '<span class="note-card-del" style="margin-left:auto;color:var(--accent);cursor:pointer;font-size:12px;opacity:0.6" data-ch-del="' + item.chapterIdx + '" data-text-del="' + item.text.substring(0, 50).replace(/"/g, '&quot;') + '">删除</span></div>';
+      '<span class="note-card-del" style="margin-left:auto;color:var(--accent);cursor:pointer;font-size:12px;opacity:0.6" data-ch-del="' + item.chapterIdx + '" data-text-del="' + item.text.substring(0, 50).replace(/"/g, '&quot;') + '">' + _t('common.delete') + '</span></div>';
 
     // 点击跳转到对应章节
     card.setAttribute('data-ch', item.chapterIdx);
@@ -4608,11 +4723,11 @@ function openBookmarks() {
       var remaining = list.querySelectorAll('.note-card').length;
       var stat = list.querySelector('div[style*="text-align:center"]');
       if (remaining === 0) {
-        list.innerHTML = '<div class="notes-empty"><span class="mi">bookmark_border</span><p>本书还没有划线</p><p class="sub">阅读时选中文字并划线即可添加</p></div>';
+        list.innerHTML = '<div class="notes-empty"><span class="mi">bookmark_border</span><p>' + _t('bm.empty') + '</p><p class="sub">' + _t('bm.emptySub') + '</p></div>';
       } else if (stat) {
-        stat.textContent = '共 ' + remaining + ' 条划线';
+        stat.textContent = _t('bm.count', {n: remaining});
       }
-      showToast('已删除划线');
+      showToast(_t('hl.deleted'));
     };
 
     list.appendChild(card);
@@ -4679,12 +4794,13 @@ function sendSelectionToAI() {
   
   // 添加用户消息气泡
   addAIMessage('user', text, '');
-  addAIMessage('ai-loading', '正在连接 AI ···', '');
+  addAIMessage('ai-loading', _t('ai.connecting'), '');
 
   // 调用 Bridge
   if (window.CoreadBridge && window.CoreadBridge.sendToAI) {
     try {
       window.CoreadBridge.sendToAI(JSON.stringify({
+        lang: (window.getLang ? window.getLang() : 'zh'), persona: getPersona(),
         selectedText: text,
         bookTitle: currentBookTitle || '',
         chapterTitle: chapters[currentIdx] ? (chapters[currentIdx].title || '') : '',
@@ -4692,11 +4808,11 @@ function sendSelectionToAI() {
       }));
     } catch(e) {
       removeLoadingMessage();
-      addAIMessage('ai', '桥接调用失败: ' + e, '');
+      addAIMessage('ai', _t('ai.bridgeFail') + e, '');
     }
   } else {
     removeLoadingMessage();
-    addAIMessage('ai', '桥接未就绪，请确认插件已正确安装。', '');
+    addAIMessage('ai', _t('ai.bridgeNotReady'), '');
   }
 
   // 清除选区
@@ -4712,14 +4828,14 @@ function sendAIFollowUp() {
   input.value = '';
 
   addAIMessage('user', msg, '');
-  addAIMessage('ai-loading', '正在接收回复 ···', '');
+  addAIMessage('ai-loading', _t('ai.receiving'), '');
 
   if (window.CoreadBridge && window.CoreadBridge.sendFollowUp) {
     try {
-      window.CoreadBridge.sendFollowUp(JSON.stringify({ message: msg }));
+      window.CoreadBridge.sendFollowUp(JSON.stringify({ message: msg, lang: (window.getLang ? window.getLang() : 'zh'), persona: getPersona() }));
     } catch(e) {
       removeLoadingMessage();
-      addAIMessage('ai', '发送失败: ' + e, '');
+      addAIMessage('ai', _t('ai.sendFail') + e, '');
     }
   }
 }
@@ -4816,10 +4932,10 @@ window.__coreadAIChunk = function(chunk) {
   
   // 流式输出时，如果正在输出思维链或工具调用内部，显示占位符
   if (inThinking) {
-    displayText += '<span style="color:var(--ink-3);font-size:12px;">💭 思考中...</span>';
+    displayText += '<span style="color:var(--ink-3);font-size:12px;">' + _t('ai.thinking') + '</span>';
   }
   if (inFunctionCall) {
-    displayText += '<span style="color:var(--ink-3);font-size:12px;">🔧 调用工具...</span>';
+    displayText += '<span style="color:var(--ink-3);font-size:12px;">' + _t('ai.usingTool') + '</span>';
   }
   
   __streamingMsgEl.innerHTML = renderMd(displayText);
@@ -4942,15 +5058,15 @@ window.__coreadSetConfig = function(jsonStr) {
       if (valEl) valEl.textContent = len > 12 ? cfg.chatId.substring(0, 8) + '...' : cfg.chatId;
     } else if (cfg.chatId && len > 0) {
       // 过短或过长才提示检查
-      if (valEl) valEl.textContent = '配置有误';
-      var hint = 'chat_id 格式可能不正确';
-      if (len < 8) hint += '（当前长度 ' + len + '，请确认是否复制完整）';
-      else hint += '（当前长度 ' + len + '，过长，请检查是否多复制了内容）';
-      hint += '。若共读功能可正常使用可忽略此提醒。';
+      if (valEl) valEl.textContent = _t('cfg.bad');
+      var hint = _t('cfg.hintBase');
+      if (len < 8) hint += _t('cfg.hintShort', {n: len});
+      else hint += _t('cfg.hintLong', {n: len});
+      hint += _t('cfg.hintTail');
       showConfigAlert(hint);
     } else {
       // 空 = 尚未配置
-      if (valEl) valEl.textContent = '未配置';
+      if (valEl) valEl.textContent = _t('cfg.none');
       showConfigAlert('');
     }
     // 更新共读搭档名称
@@ -4968,9 +5084,9 @@ window.__coreadSetConfig = function(jsonStr) {
 function showConfigAlert(extraMsg) {
   // 避免重复弹
   if ($('configAlert')) return;
-  var title = extraMsg ? '配置有误' : 'AI 共读尚未配置';
+  var title = extraMsg ? _t('cfg.bad') : _t('cfg.notSetTitle');
   var icon = extraMsg ? 'error_outline' : 'link_off';
-  var desc = extraMsg || '请在 Operit 对话中告诉 AI「帮我配置 CoRead」或使用工具 <code style="background:var(--bg-1);padding:2px 4px;border-radius:3px;">coread2_config:set_coread_config</code> 设置 chat_id。';
+  var desc = extraMsg || _t('cfg.notSetDesc', {code: '<code style="background:var(--bg-1);padding:2px 4px;border-radius:3px;">coread2_config:set_coread_config</code>'});
   var overlay = document.createElement('div');
   overlay.id = 'configAlert';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
@@ -4978,7 +5094,7 @@ function showConfigAlert(extraMsg) {
     '<div style="margin-bottom:12px;"><span class="mi" style="font-size:36px;color:var(--accent);">' + icon + '</span></div>' +
     '<div style="font-family:var(--font-read);font-size:15px;font-weight:600;margin-bottom:8px;">' + title + '</div>' +
     '<div style="font-family:var(--font-read);font-size:13px;color:var(--ink-2);line-height:1.6;margin-bottom:16px;">' + desc + '</div>' +
-    '<button onclick="this.parentNode.parentNode.remove()" style="background:var(--accent);color:var(--bg-0);border:none;border-radius:8px;padding:10px 24px;font-size:13px;font-weight:600;cursor:pointer;">我知道了</button>' +
+    '<button onclick="this.parentNode.parentNode.remove()" style="background:var(--accent);color:var(--bg-0);border:none;border-radius:8px;padding:10px 24px;font-size:13px;font-weight:600;cursor:pointer;">' + _t('cfg.gotIt') + '</button>' +
     '</div>';
   document.body.appendChild(overlay);
 }
@@ -5049,12 +5165,13 @@ function submitAIQuick() {
   // 打开侧边栏面板显示对话（跳过历史加载，因为要显示新消息）
   openAIPanel(true);
   addAIMessage('user', comment || text, comment ? text : '');
-  addAIMessage('ai-loading', '正在接收回复 ···', '');
+  addAIMessage('ai-loading', _t('ai.receiving'), '');
 
   // 调用 Bridge 发送
   if (window.CoreadBridge && window.CoreadBridge.sendToAI) {
     try {
       window.CoreadBridge.sendToAI(JSON.stringify({
+        lang: (window.getLang ? window.getLang() : 'zh'), persona: getPersona(),
         selectedText: text,
         bookTitle: currentBookTitle || '',
         chapterTitle: chapters[currentIdx] ? (chapters[currentIdx].title || '') : '',
@@ -5062,11 +5179,11 @@ function submitAIQuick() {
       }));
     } catch(e) {
       removeLoadingMessage();
-      addAIMessage('ai', '桥接调用异常: ' + e, '');
+      addAIMessage('ai', _t('ai.bridgeErr') + e, '');
     }
   } else {
     removeLoadingMessage();
-    addAIMessage('ai', '桥接未就绪，请重新打开 CoRead。', '');
+    addAIMessage('ai', _t('ai.bridgeReopen'), '');
   }
 }
 

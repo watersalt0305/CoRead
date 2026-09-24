@@ -15,6 +15,113 @@ var CONFIG_FILE = "/sdcard/Download/Operit/CoRead2/_coread_config.json";
 var MAX_HISTORY = 100;
 var CONTEXT_RESTORE_COUNT = 8;
 
+// ============ 提示词模板（按语言） ============
+// 占位符：{bookTitle} {chapter} {text} {comment} {history}
+// 预留：下个版本可从配置读取用户自定义模板覆盖这里的默认值
+var PROMPT_TEMPLATES = {
+    zh: {
+        header:      "【CoRead】正在阅读《{bookTitle}》",
+        chapter:     " - {chapter}",
+        selection:   "\n\n{user}选中了这段文字：\n> {text}",
+        withComment: "\n\n{user}的想法/问题：{comment}",
+        noComment:   "\n\n请帮忙分析或讨论这段内容。",
+        restore:     "【CoRead 上下文恢复】你之前和{user}讨论过《{bookTitle}》：\n{history}\n\n请继续讨论：\n\n",
+        hSelected:   "选中: ",
+        hAsked:      "问: ",
+        hAI:         "AI: ",
+        unknownBook: "当前书籍"
+    },
+    en: {
+        header:      "[CoRead] Reading \u201C{bookTitle}\u201D",
+        chapter:     " - {chapter}",
+        selection:   "\n\n{User} selected this passage:\n> {text}",
+        withComment: "\n\n{User}'s thought/question: {comment}",
+        noComment:   "\n\nPlease analyze or discuss this passage.",
+        restore:     "[CoRead context restore] You previously discussed \u201C{bookTitle}\u201D with {user}:\n{history}\n\nPlease continue the discussion:\n\n",
+        hSelected:   "Selected: ",
+        hAsked:      "Asked: ",
+        hAI:         "AI: ",
+        unknownBook: "the current book"
+    }
+};
+
+var MSG = {
+    zh: {
+        noText:      "没有选中文字",
+        noChatId:    "⚠️ 未配置对话 ID。请在设置页面填写 chat_id。",
+        noChatIdErr: "未配置 chat_id",
+        sendFail:    "发送失败: ",
+        fail:        "失败: ",
+        emptyMsg:    "空消息",
+        badBook:     "缺少书籍信息或 bookId 非法"
+    },
+    en: {
+        noText:      "No text selected",
+        noChatId:    "⚠️ No chat ID configured. Ask the AI to set chat_id via coread2_config:set_coread_config.",
+        noChatIdErr: "chat_id not configured",
+        sendFail:    "Send failed: ",
+        fail:        "Failed: ",
+        emptyMsg:    "Empty message",
+        badBook:     "Missing book info or invalid bookId"
+    }
+};
+
+function normLang(lang) { return lang === "en" ? "en" : "zh"; }
+
+// ============ 共读称呼 ============
+// persona: { mode: "user" | "me" | "name", name: "..." }，缺省 = user（与旧版一致）
+// "me" 模式人称结构不同（我的想法 / My thought），不能靠替换名字实现，单独一套覆盖字段
+var PROMPT_ME = {
+    zh: {
+        selection:   "\n\n我选中了这段文字：\n> {text}",
+        withComment: "\n\n我的想法/问题：{comment}",
+        noComment:   "\n\n请帮我分析或讨论这段内容。",
+        restore:     "【CoRead 上下文恢复】你之前和我讨论过《{bookTitle}》：\n{history}\n\n请继续讨论：\n\n"
+    },
+    en: {
+        selection:   "\n\nI selected this passage:\n> {text}",
+        withComment: "\n\nMy thought/question: {comment}",
+        noComment:   "\n\nPlease help me analyze or discuss this passage.",
+        restore:     "[CoRead context restore] You previously discussed \u201C{bookTitle}\u201D with me:\n{history}\n\nPlease continue the discussion:\n\n"
+    }
+};
+var PERSONA_DEFAULT = { zh: { user: "用户", User: "用户" }, en: { user: "the user", User: "The user" } };
+
+function sanitizePersonaName(n) {
+    return String(n || "").replace(/[\r\n\t{}]/g, " ").replace(/\s+/g, " ").trim().substring(0, 24);
+}
+
+// 返回 { P: 合并后的模板, user, User }
+function resolvePrompt(lang, persona) {
+    lang = normLang(lang);
+    var base = PROMPT_TEMPLATES[lang];
+    var p = asRecordSafe(persona);
+    var mode = p.mode;
+    var name = sanitizePersonaName(p.name);
+    if (mode === "me") {
+        var P = {};
+        for (var k in base) P[k] = base[k];
+        var o = PROMPT_ME[lang];
+        for (var k2 in o) P[k2] = o[k2];
+        return { P: P, user: "", User: "" };
+    }
+    if (mode === "name" && name) return { P: base, user: name, User: name };
+    var d = PERSONA_DEFAULT[lang];
+    return { P: base, user: d.user, User: d.User };
+}
+
+function asRecordSafe(v) {
+    if (!v) return {};
+    if (typeof v === "string") { try { v = JSON.parse(v); } catch (e) { return {}; } }
+    return (typeof v === "object") ? v : {};
+}
+
+function fillTpl(tpl, vars) {
+    return String(tpl).replace(/\{(\w+)\}/g, function(m, k) {
+        return vars[k] !== undefined ? String(vars[k]) : m;
+    });
+}
+
 // ============ 内存状态 ============
 var __chatId = "";
 var __cardName = "";
@@ -65,7 +172,9 @@ function extractReply(result) {
 }
 
 // 生成上下文恢复摘要（cutoff：只收录该时间点之前的历史，避免把新对话中产生的记录当旧上下文）
-function buildContextSummary(bookTitle, cutoff) {
+function buildContextSummary(bookTitle, cutoff, lang, persona) {
+    var R = resolvePrompt(lang, persona);
+    var P = R.P;
     var pool = __localHistory;
     if (cutoff) {
         pool = pool.filter(function(e) { return !e.timestamp || e.timestamp < cutoff; });
@@ -76,20 +185,20 @@ function buildContextSummary(bookTitle, cutoff) {
         for (var j = pool.length - 1; j >= 0; j--) {
             if (pool[j].bookTitle) { bookTitle = pool[j].bookTitle; break; }
         }
-        if (!bookTitle) bookTitle = "当前书籍";
+        if (!bookTitle) bookTitle = P.unknownBook;
     }
     var recent = pool.slice(-CONTEXT_RESTORE_COUNT);
     var lines = [];
     for (var i = 0; i < recent.length; i++) {
         var entry = recent[i];
         var summary = "";
-        if (entry.selectedText) summary += "选中: \"" + entry.selectedText.substring(0, 60) + (entry.selectedText.length > 60 ? "...\"" : "\"");
-        if (entry.comment) summary += (summary ? " " : "") + "问: " + entry.comment.substring(0, 40) + (entry.comment.length > 40 ? "..." : "");
-        if (entry.aiReply) summary += (summary ? " " : "") + "AI: " + entry.aiReply.substring(0, 80) + (entry.aiReply.length > 80 ? "..." : "");
+        if (entry.selectedText) summary += P.hSelected + "\"" + entry.selectedText.substring(0, 60) + (entry.selectedText.length > 60 ? "...\"" : "\"");
+        if (entry.comment) summary += (summary ? " " : "") + P.hAsked + entry.comment.substring(0, 40) + (entry.comment.length > 40 ? "..." : "");
+        if (entry.aiReply) summary += (summary ? " " : "") + P.hAI + entry.aiReply.substring(0, 80) + (entry.aiReply.length > 80 ? "..." : "");
         if (summary) lines.push((i + 1) + ". " + summary);
     }
     if (lines.length === 0) return "";
-    return "\u3010CoRead \u4E0A\u4E0B\u6587\u6062\u590D\u3011\u4F60\u4E4B\u524D\u548C\u7528\u6237\u8BA8\u8BBA\u8FC7\u300A" + bookTitle + "\u300B\uFF1A\n" + lines.join("\n") + "\n\n\u8BF7\u7EE7\u7EED\u8BA8\u8BBA\uFF1A\n\n";
+    return fillTpl(P.restore, { bookTitle: bookTitle, history: lines.join("\n"), user: R.user, User: R.User });
 }
 
 // ============ 文件 IO ============
@@ -151,13 +260,13 @@ async function loadHistory(bookId) {
 
 // 统一的上下文恢复入口：sendToAI 与 sendFollowUp 都走这里
 // 返回需要拼在消息前面的恢复前缀（可能为空串）
-function maybeBuildRestorePrefix(bookTitle) {
+function maybeBuildRestorePrefix(bookTitle, lang, persona) {
     if (__lastUsedChatId === __chatId) return "";
     // 首次检测到 chatId 切换：记下时刻，之后新对话里产生的历史不会被当作旧上下文回灌
     if (!__chatSwitchAt) __chatSwitchAt = Date.now();
     // 历史尚未异步加载完成：本次不注入也不消费标志，待加载完成后下次发送再触发
     if (!__historyLoaded) return "";
-    var summary = buildContextSummary(bookTitle, __chatSwitchAt);
+    var summary = buildContextSummary(bookTitle, __chatSwitchAt, lang, persona);
     // 历史已加载完毕即消费标志：摘要为空说明确实没有可恢复的内容，不该让标志一直悬着
     __lastUsedChatId = __chatId;
     __chatSwitchAt = 0;
@@ -217,27 +326,28 @@ function Screen(ctx) {
                 var bookTitle = String(payload.bookTitle || "").trim();
                 var chapterTitle = String(payload.chapterTitle || "").trim();
                 var comment = String(payload.comment || "").trim();
+                var lang = normLang(payload.lang);
+                var R = resolvePrompt(lang, payload.persona);
+                var P = R.P;
+                var M = MSG[lang];
 
-                if (!text) return { ok: false, error: "没有选中文字" };
+                if (!text) return { ok: false, error: M.noText };
                 if (!__chatId) {
                     controller.evaluateJavascript(
                         "window.__coreadAIReply && window.__coreadAIReply(" +
-                        JSON.stringify("⚠️ 未配置对话 ID。请在设置页面填写 chat_id。") + ")"
+                        JSON.stringify(M.noChatId) + ")"
                     );
-                    return { ok: false, error: "未配置 chat_id" };
+                    return { ok: false, error: M.noChatIdErr };
                 }
 
                 // 构造消息（chatId 切换后首条消息注入上下文恢复摘要，逻辑见 maybeBuildRestorePrefix）
-                var message = maybeBuildRestorePrefix(bookTitle);
+                var message = maybeBuildRestorePrefix(bookTitle, lang, payload.persona);
 
-                message += "\u3010CoRead\u3011\u6B63\u5728\u9605\u8BFB\u300A" + bookTitle + "\u300B";
-                if (chapterTitle) message += " - " + chapterTitle;
-                message += "\n\n\u7528\u6237\u9009\u4E2D\u4E86\u8FD9\u6BB5\u6587\u5B57\uFF1A\n> " + text.replace(/\n/g, "\n> ");
-                if (comment) {
-                    message += "\n\n\u7528\u6237\u7684\u60F3\u6CD5/\u95EE\u9898\uFF1A" + comment;
-                } else {
-                    message += "\n\n\u8BF7\u5E2E\u6211\u5206\u6790\u6216\u8BA8\u8BBA\u8FD9\u6BB5\u5185\u5BB9\u3002";
-                }
+                var vars = { bookTitle: bookTitle, chapter: chapterTitle, text: text.replace(/\n/g, "\n> "), comment: comment, user: R.user, User: R.User };
+                message += fillTpl(P.header, vars);
+                if (chapterTitle) message += fillTpl(P.chapter, vars);
+                message += fillTpl(P.selection, vars);
+                message += comment ? fillTpl(P.withComment, vars) : fillTpl(P.noComment, vars);
 
                 // 异步调用（流式传输）
                 setTimeout(function() {
@@ -295,7 +405,7 @@ function Screen(ctx) {
                                 );
                             }).catch(function(e) {
                                 controller.evaluateJavascript(
-                                    "window.__coreadAIReply && window.__coreadAIReply(" + JSON.stringify("发送失败: " + String(e)) + ")"
+                                    "window.__coreadAIReply && window.__coreadAIReply(" + JSON.stringify(M.sendFail + String(e)) + ")"
                                 );
                             });
                         }
@@ -309,11 +419,13 @@ function Screen(ctx) {
             sendFollowUp: function() {
                 var payload = asRecord(unwrap(arguments[0]));
                 var msg = String(payload.message || "").trim();
-                if (!msg) return { ok: false, error: "空消息" };
-                if (!__chatId) return { ok: false, error: "未配置 chat_id" };
+                var lang = normLang(payload.lang);
+                var M = MSG[lang];
+                if (!msg) return { ok: false, error: M.emptyMsg };
+                if (!__chatId) return { ok: false, error: M.noChatIdErr };
 
                 // 追问同样需要上下文恢复：否则切换 chatId 后先追问，新对话完全不知道在聊什么
-                var outMsg = maybeBuildRestorePrefix("") + msg;
+                var outMsg = maybeBuildRestorePrefix("", lang, payload.persona) + msg;
 
                 setTimeout(function() {
                     try {
@@ -359,7 +471,7 @@ function Screen(ctx) {
                                 );
                             }).catch(function(e) {
                                 controller.evaluateJavascript(
-                                    "window.__coreadAIReply && window.__coreadAIReply(" + JSON.stringify("失败: " + String(e)) + ")"
+                                    "window.__coreadAIReply && window.__coreadAIReply(" + JSON.stringify(M.fail + String(e)) + ")"
                                 );
                             });
                         }
@@ -407,7 +519,7 @@ function Screen(ctx) {
                 var bookId = sanitizeBookId(payload.bookId);
                 var bookTitle = String(payload.bookTitle || "");
                 
-                if (!bookId || !bookTitle) return { ok: false, error: "缺少书籍信息或 bookId 非法" };
+                if (!bookId || !bookTitle) return { ok: false, error: MSG.zh.badBook + " / " + MSG.en.badBook };
                 
                 __currentBookId = bookId;
                 // 不重置 __lastUsedChatId，只在真正切换对话时才注入
@@ -524,8 +636,8 @@ function Screen(ctx) {
 
         // 释放资源文件到 reader 目录（同步完成后再加载 WebView）
         try {
-            var keys = ["reader_html", "reader_css", "reader_js", "jszip_js"];
-            var names = ["reader.html", "reader.css", "reader.js", "jszip.min.js"];
+            var keys = ["reader_html", "reader_css", "reader_js", "jszip_js", "i18n_js", "i18n_dict_js"];
+            var names = ["reader.html", "reader.css", "reader.js", "jszip.min.js", "i18n.js", "i18n_dict.js"];
             for (var i = 0; i < keys.length; i++) {
                 var resPath = await ToolPkg.readResource(keys[i]);
                 if (resPath) {
